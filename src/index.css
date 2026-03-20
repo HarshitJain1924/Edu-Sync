@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Default to Dark Mode for this design */
+    --background: 223 35% 7%; /* Dark base #0B0F19 */
+    --foreground: 210 40% 98%;
+
+    --card: 223 35% 10%; /* Slightly lighter than bg */
+    --card-foreground: 210 40% 98%;
+
+    --popover: 223 35% 10%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 243 75% 59%; /* Indigo/Electric Blue #6366F1 */
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 20%; /* Subtle border */
+    --input: 217 33% 17%;
+    --ring: 243 75% 59%;
+
+    --radius: 0.75rem;
+
+    /* Custom tokens for Glassmorphism & Glows */
+    --gradient-primary: linear-gradient(
+      135deg,
+      hsl(243, 75%, 59%),
+      hsl(260, 100%, 65%)
+    );
+    --gradient-button: linear-gradient(
+      to right,
+      hsl(243, 75%, 59%),
+      hsl(260, 100%, 65%)
+    );
+    --gradient-glow: radial-gradient(
+      circle,
+      rgba(99, 102, 241, 0.15) 0%,
+      rgba(0, 0, 0, 0) 70%
+    );
+
+    --shadow-soft: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
+    --shadow-medium: 0 8px 30px -4px rgba(0, 0, 0, 0.6);
+    --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.4);
+
+    --glass-bg: rgba(17, 25, 40, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.1);
+
+    --sidebar-background: 223 35% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 243 75% 59%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 15%;
+    --sidebar-ring: 243 75% 59%;
+  }
+
+  .dark {
+    /* Same as root since we are forcing dark mode vibe */
+    --background: 223 35% 7%;
+    --foreground: 210 40% 98%;
+
+    --card: 223 35% 10%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 223 35% 10%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 243 75% 59%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 17%;
+    --ring: 243 75% 59%;
+
+    --sidebar-background: 223 35% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 243 75% 59%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 15%;
+    --sidebar-ring: 243 75% 59%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply backdrop-blur-md bg-opacity-75 bg-[rgba(17,25,40,0.75)] border border-white/10 shadow-soft;
+  }
+  
+  .glass-card {
+    @apply backdrop-blur-md bg-card/60 border border-white/5 shadow-soft hover:shadow-glow transition-all duration-300;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+  }
+
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(0.98); }
+  }
+
+  .animate-pulse-subtle {
+    animation: pulse-subtle 3s ease-in-out infinite;
+  }
+
+  .study-spotlight {
+    box-shadow: 0 0 50px 10px rgba(99, 102, 241, 0.2);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+  }
+
+  .glass-sidebar {
+    @apply backdrop-blur-2xl bg-card/40 border-l border-white/5;
+  }
+
+  .focus-tint {
+    @apply fixed inset-0 z-[40] bg-black/80 backdrop-blur-sm transition-all duration-700 pointer-events-none;
+  }
+}
+
+/* Custom Premium Scrollbar Theme */
+@layer base {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0f172a;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 10px;
+    border: 2px solid #0f172a;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #10b981;
+  }
+
+  /* Specific styling for modern browsers */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #1e293b #0f172a;
+  }
+
+  /* Override inline styles from API job descriptions */
+  .job-description-html * {
+    color: inherit !important;
+    background-color: transparent !important;
+    font-family: inherit !important;
+  }
+}
+
