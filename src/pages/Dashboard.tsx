@@ -4,6 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Calendar as UiCalendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,8 +24,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { 
-  BookOpen, Clock, Zap, TrendingUp, Award,
-  Flame, Target, BarChart3, Bell, CheckCheck
+  BookOpen,
+  Clock,
+  Zap,
+  TrendingUp,
+  Award,
+  Flame,
+  Target,
+  BarChart3,
+  Bell,
+  CheckCheck,
+  Menu,
+  ChevronRight,
+  Search,
+  LayoutGrid,
+  School,
+  Users,
+  Sparkles,
+  User,
+  Video,
+  Play,
+  Calendar
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
@@ -34,8 +64,10 @@ interface DashboardStats {
 interface CourseRecord {
   id: string;
   title: string;
+  topic?: string;
   created_at?: string;
   duration?: string;
+  thumbnail_url?: string;
   modules?: unknown[];
 }
 
@@ -87,6 +119,26 @@ interface TabProps {
   icon: React.ReactNode;
 }
 
+interface FeaturedCourse {
+  title: string;
+  topic: string;
+  subtitle: string;
+  progress: number;
+  durationLabel: string;
+  moduleCount: number;
+  thumbnailUrl?: string;
+}
+
+const courseImageCache: Record<string, string> = {};
+
+const getPicsumUrl = (topic: string, title: string) => {
+  const seed = `${topic}-${title}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 60);
+  return `https://picsum.photos/seed/${seed}/1200/900`;
+};
+
 const Dashboard = () => {
   useRequireAuth();
   const navigate = useNavigate();
@@ -113,10 +165,23 @@ const Dashboard = () => {
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [profileName, setProfileName] = useState("Learner");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [selectedWeekDay, setSelectedWeekDay] = useState(0);
+  const [featuredCourse, setFeaturedCourse] = useState<FeaturedCourse>({
+    title: "Your Latest Course",
+    topic: "learning",
+    subtitle: "Learning Path",
+    progress: 35,
+    durationLabel: "Self-paced",
+    moduleCount: 0,
+    thumbnailUrl: undefined,
+  });
+  const [featuredCourseRecord, setFeaturedCourseRecord] = useState<CourseRecord | null>(null);
 
   const LEVEL_XP = 3000;
 
   const READ_NOTIFICATIONS_KEY = "edusync.dashboard.notifications.read";
+  const SIDEBAR_COLLAPSE_KEY = "edusync.sidebar.collapsed";
 
   const parseDurationToHours = (duration?: string) => {
     if (!duration) return 0;
@@ -126,6 +191,15 @@ const Dashboard = () => {
     if (d.includes("week") || d === "1w") return 7;
     const numeric = Number.parseFloat((duration.match(/[\d.]+/) || ["0"])[0]);
     return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const countCourseLessons = (modules?: unknown[]): number => {
+    if (!Array.isArray(modules)) return 0;
+    return modules.reduce<number>((sum, mod) => {
+      const modWithLessons = mod as { lessons?: unknown[] };
+      const lessonCount: number = Array.isArray(modWithLessons.lessons) ? modWithLessons.lessons.length : 0;
+      return sum + lessonCount;
+    }, 0);
   };
 
   const toDateLabel = (iso?: string) => {
@@ -287,6 +361,26 @@ const Dashboard = () => {
     }
   }, []);
 
+  useEffect(() => {
+    const syncSidebarState = () => {
+      try {
+        setIsSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1");
+      } catch {
+        setIsSidebarCollapsed(false);
+      }
+    };
+
+    syncSidebarState();
+    window.addEventListener("storage", syncSidebarState);
+    window.addEventListener("edusync:sidebar-toggled", syncSidebarState as EventListener);
+
+    return () => {
+      window.removeEventListener("storage", syncSidebarState);
+      window.removeEventListener("edusync:sidebar-toggled", syncSidebarState as EventListener);
+    };
+  }, []);
+
+
   const fetchUserAndStats = async () => {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -318,7 +412,7 @@ const Dashboard = () => {
       // Main source: user-generated courses
       const { data: courses, error: coursesError } = await supabase
         .from("ai_generated_courses")
-        .select("id, title, created_at, duration, modules")
+        .select("id, title, topic, created_at, duration, thumbnail_url, modules")
         .eq("created_by", authUser.id);
       if (coursesError) throw coursesError;
 
@@ -330,6 +424,55 @@ const Dashboard = () => {
       const level = Math.max(1, Math.floor(totalXP / LEVEL_XP) + 1);
       const currentXP = totalXP % LEVEL_XP;
       const nextLevelXP = LEVEL_XP;
+
+      const latestCourse = [...courseRecords]
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+
+      if (latestCourse) {
+        const modules = Array.isArray(latestCourse.modules) ? latestCourse.modules.length : 0;
+        const totalLessons = countCourseLessons(latestCourse.modules);
+        const title = latestCourse.title || "Your Latest Course";
+        const subtitle = modules > 0 ? `${modules} module${modules === 1 ? "" : "s"}` : "Learning Path";
+        let progress = Math.max(0, Math.min(100, Math.round((currentXP / Math.max(1, nextLevelXP)) * 100) || 0));
+
+        if (latestCourse.id && totalLessons > 0) {
+          try {
+            const { data: featuredProgressRows } = await (supabase as any)
+              .from("course_progress")
+              .select("lesson_id")
+              .eq("user_id", authUser.id)
+              .eq("course_id", latestCourse.id)
+              .eq("completed", true);
+
+            const completedLessons = new Set((featuredProgressRows || []).map((row: any) => row.lesson_id));
+            progress = Math.round((completedLessons.size / totalLessons) * 100);
+          } catch {
+            // Keep fallback progress when course progress rows are unavailable.
+          }
+        }
+
+        setFeaturedCourseRecord(latestCourse);
+        setFeaturedCourse({
+          title,
+          topic: latestCourse.topic || "learning",
+          subtitle,
+          progress,
+          durationLabel: latestCourse.duration || "Self-paced",
+          moduleCount: modules,
+          thumbnailUrl: latestCourse.thumbnail_url,
+        });
+      } else {
+        setFeaturedCourseRecord(null);
+        setFeaturedCourse({
+          title: "Create Your First Course",
+          topic: "learning",
+          subtitle: "Learning Path",
+          progress: 18,
+          durationLabel: "Start now",
+          moduleCount: 0,
+          thumbnailUrl: undefined,
+        });
+      }
 
       const courseDates = courseRecords
         .map((c) => c.created_at)
@@ -479,6 +622,19 @@ const Dashboard = () => {
     { id: "achievements", label: "Achievements", icon: <Award className="w-4 h-4" /> },
   ];
 
+  const mobileNavItems = [
+    { label: "Dashboard", path: "/dashboard" },
+    { label: "Study Rooms", path: "/study-rooms" },
+    { label: "Video Learning", path: "/videos" },
+    { label: "Analytics", path: "/analytics" },
+    { label: "Practice Hub", path: "/quiz" },
+    { label: "Games", path: "/games" },
+    { label: "Placement Prep", path: "/placement-prep" },
+    { label: "Job Updates", path: "/jobs" },
+    { label: "Resume Builder", path: "/resume-builder" },
+    { label: "Settings", path: "/settings" },
+  ];
+
   const notifications = useMemo<AppNotification[]>(() => {
     const now = Date.now();
     const next24h = now + 24 * 60 * 60 * 1000;
@@ -582,369 +738,546 @@ const Dashboard = () => {
     });
   };
 
+  const heroProgress = Math.max(0, Math.min(100, featuredCourse.progress));
+
+  const openFeaturedCourse = () => {
+    if (featuredCourseRecord) {
+      navigate("/course-view", { state: featuredCourseRecord });
+      return;
+    }
+    navigate("/ai-course-creator");
+  };
+  const [heroImageUrl, setHeroImageUrl] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHeroImage = async () => {
+      if (featuredCourse.thumbnailUrl && featuredCourse.thumbnailUrl.trim().length > 0) {
+        setHeroImageUrl(featuredCourse.thumbnailUrl);
+        return;
+      }
+
+      const topic = (featuredCourse.topic || featuredCourse.title || "learning").toLowerCase().trim();
+      if (courseImageCache[topic]) {
+        setHeroImageUrl(courseImageCache[topic]);
+        return;
+      }
+
+      const accessKey = import.meta.env.VITE_UNSPLASH_ACCESS_KEY;
+      if (accessKey) {
+        try {
+          const query = encodeURIComponent(featuredCourse.topic || featuredCourse.title || "online learning");
+          const res = await fetch(
+            `https://api.unsplash.com/search/photos?query=${query}&orientation=landscape&per_page=1&client_id=${accessKey}`,
+            { headers: { "Accept-Version": "v1" } }
+          );
+
+          if (res.ok) {
+            const data = await res.json();
+            const url = data.results?.[0]?.urls?.regular;
+            if (url) {
+              courseImageCache[topic] = url;
+              if (!cancelled) setHeroImageUrl(url);
+              return;
+            }
+          }
+        } catch {
+          // fall through to picsum fallback
+        }
+      }
+
+      const fallback = getPicsumUrl(featuredCourse.topic || "learning", featuredCourse.title || "course");
+      courseImageCache[topic] = fallback;
+      if (!cancelled) setHeroImageUrl(fallback);
+    };
+
+    loadHeroImage();
+    return () => {
+      cancelled = true;
+    };
+  }, [featuredCourse.thumbnailUrl, featuredCourse.topic, featuredCourse.title]);
+
+  const floatingGlassCardClass =
+    "rounded-3xl bg-white dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200 dark:border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_40px_rgba(0,0,0,0.4)] transition-all duration-300 hover:-translate-y-1 hover:shadow-xl dark:hover:shadow-xl";
+
   const renderStats = () => (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-      <div className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-500/20 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total Courses</p>
-          <BookOpen className="w-4 h-4 text-blue-400" />
-        </div>
-        <p className="text-2xl font-bold text-white">{stats.totalCourses}</p>
-      </div>
-
-      <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Study Hours</p>
-          <Clock className="w-4 h-4 text-purple-400" />
-        </div>
-        <p className="text-2xl font-bold text-white">{stats.studyHours}</p>
-      </div>
-
-      <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total XP</p>
-          <Zap className="w-4 h-4 text-amber-400" />
-        </div>
-        <p className="text-2xl font-bold text-white">{(stats.totalXP / 1000).toFixed(1)}K</p>
-      </div>
-
-      <div className="bg-gradient-to-br from-red-500/10 to-rose-500/10 border border-red-500/20 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Streak</p>
-          <Flame className="w-4 h-4 text-red-400" />
-        </div>
-        <p className="text-2xl font-bold text-white">{stats.streak}</p>
-      </div>
-    </div>
+    <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
+      {[
+        { label: "Total Courses", value: `${stats.totalCourses}`, hint: `+${Math.max(0, stats.totalCourses - 10)} new`, icon: BookOpen },
+        { label: "Study Hours", value: `${stats.studyHours}h`, hint: "Weekly", icon: Clock },
+        { label: "Total XP", value: `${stats.totalXP.toLocaleString()}`, hint: "Top track", icon: Zap },
+        { label: "Daily Streak", value: `${stats.streak} Days`, hint: "Elite", icon: Flame },
+      ].map((item) => (
+        <Card key={item.label} className={`${floatingGlassCardClass} shadow-[0_20px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.03)]`}>
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] tracking-[0.18em] uppercase font-bold text-slate-600 dark:text-zinc-400">{item.label}</p>
+              <item.icon className="h-4 w-4 text-slate-700 dark:text-zinc-300" />
+            </div>
+            <div className="flex items-end justify-between gap-3">
+              <p className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">{item.value}</p>
+              <span className="text-[10px] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-zinc-300 font-semibold">
+                {item.hint}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </section>
   );
 
-  const renderProfileCard = () => (
-    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] items-start gap-6 mb-8">
-      <div className="space-y-6">
-        <div className="w-full bg-gradient-to-br from-[#11182c]/95 to-[#14132a]/95 border border-white/10 rounded-2xl p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Left: User Info and Level */}
-            <div className="md:col-span-1">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt="Profile"
-                      className="w-full h-full rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-2xl text-white font-bold">
-                      {profileName?.charAt(0).toUpperCase() || "U"}
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-white font-bold text-lg">
-                    {profileName}
-                  </p>
-                  <p className="text-gray-400 text-sm">Level {stats.level}</p>
-                </div>
+  const renderHero = () => (
+    <section className="mb-8 relative">
+      <div className="absolute inset-0 rounded-[2rem] bg-gradient-to-r from-violet-500/5 to-blue-500/5 blur-2xl" />
+      <div className="absolute inset-0 rounded-[2rem] bg-[radial-gradient(circle_at_70%_20%,rgba(194,132,255,0.08),transparent_60%),radial-gradient(circle_at_18%_88%,rgba(105,156,255,0.06),transparent_62%)] blur-2xl" />
+      <Card className={`${floatingGlassCardClass} relative rounded-[2rem] backdrop-blur-2xl overflow-hidden`}>
+        <CardContent className="p-8 md:p-10 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-8 items-center">
+          <div className="space-y-7">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="h-2 w-2 rounded-full bg-violet-300 animate-pulse" />
+                <span className="text-[10px] tracking-[0.2em] uppercase text-violet-200/90 font-bold">Resume Learning Session</span>
               </div>
+              <h2 className="text-5xl font-extrabold tracking-tight leading-tight text-slate-900 dark:text-white">
+                {featuredCourse.title}
+                <span className="block bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">{featuredCourse.subtitle}</span>
+              </h2>
+            </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400 font-semibold">LEVEL PROGRESS</span>
-                  <span className="text-xs text-gray-400">{stats.currentXP} / {stats.nextLevelXP}</span>
-                </div>
-                <Progress value={(stats.currentXP / stats.nextLevelXP) * 100} className="h-2" />
+            <div className="max-w-xl space-y-3">
+              <div className="flex items-center justify-between text-[10px] tracking-[0.18em] uppercase font-bold">
+                <span className="text-slate-600 dark:text-zinc-400">Course Progress</span>
+                <span className="text-slate-900 dark:text-white">{heroProgress}% Completed</span>
+              </div>
+              <div className="h-2 rounded-full bg-white/10 border border-white/10 overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-blue-400" style={{ width: `${heroProgress}%` }} />
               </div>
             </div>
 
-            {/* Center: Stats Grid (Day Streak removed to free space) */}
-            <div className="md:col-span-1 grid grid-cols-2 gap-3">
-              <div className="text-center p-3 bg-white/5 rounded-lg border border-white/5">
-                <p className="text-2xl font-bold text-white">{stats.studyHours}h</p>
-                <p className="text-xs text-gray-400">Study Time</p>
-              </div>
-              <div className="text-center p-3 bg-white/5 rounded-lg border border-white/5">
-                <p className="text-2xl font-bold text-white">{computeAchievements(stats).filter((a) => a.unlocked).length}</p>
-                <p className="text-xs text-gray-400">Badges</p>
-              </div>
-            </div>
-
-            {/* Right: Action Buttons */}
-            <div className="md:col-span-1 flex flex-col gap-2">
+            <div className="flex flex-wrap gap-3">
               <Button
-                onClick={() => navigate("/ai-course-creator")}
-                className="w-full bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-700 text-white font-semibold"
+                className="h-12 px-8 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-100 font-semibold"
+                onClick={openFeaturedCourse}
               >
-                <Zap className="w-4 h-4 mr-2" />
-                Create Course
+                Continue Session
+                <ChevronRight className="ml-2 h-4 w-4" />
               </Button>
               <Button
                 variant="outline"
-                className="w-full border-white/20 text-white hover:bg-white/10"
+                className="h-12 px-8 rounded-2xl border-slate-200 dark:border-white/15 bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10"
+                onClick={openFeaturedCourse}
               >
-                Edit Profile
+                Course Details
               </Button>
             </div>
           </div>
-        </div>
 
-        {renderWeeklyClasses("mb-0")}
-      </div>
-
-      <Card className="w-full xl:w-[320px] bg-white/5 border-white/10 rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base text-white">Study Calendar</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-center">
-              <p className="text-[11px] text-gray-400">Current Streak</p>
-              <p className="text-base font-semibold text-white">{stats.streak} days</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-center">
-              <p className="text-[11px] text-gray-400">Best Streak</p>
-              <p className="text-base font-semibold text-white">{bestStreak} days</p>
+          <div className="hidden lg:block">
+            <div className="rounded-3xl border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-white/5 p-2.5 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.12)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
+              <div className="relative rounded-2xl overflow-hidden aspect-square bg-slate-200 dark:bg-black/70 group">
+                <img
+                  src={heroImageUrl}
+                  alt="Course Preview"
+                  className="h-full w-full object-cover opacity-82 transition-transform duration-700 group-hover:scale-110"
+                  onError={() => {
+                    const fallback = getPicsumUrl(featuredCourse.topic || "learning", featuredCourse.title || "course");
+                    if (heroImageUrl !== fallback) {
+                      setHeroImageUrl(fallback);
+                    }
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 dark:from-black/80 via-slate-900/20 dark:via-black/20 to-transparent" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={openFeaturedCourse}
+                    aria-label="Open featured course"
+                    className="h-16 w-16 rounded-full border border-slate-300 dark:border-white/20 bg-slate-100 dark:bg-white/10 backdrop-blur-xl flex items-center justify-center transition-colors hover:bg-slate-200 dark:hover:bg-white/20"
+                  >
+                    <Play className="h-8 w-8 text-slate-900 dark:text-white fill-slate-900 dark:fill-white" />
+                  </button>
+                </div>
+                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-[10px] tracking-[0.16em] uppercase font-bold text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,0.8)]">
+                  <span>{featuredCourse.durationLabel}</span>
+                  <span>{featuredCourse.moduleCount} Modules</span>
+                </div>
+              </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+    </section>
+  );
 
-          <UiCalendar
-            mode="single"
-            selected={selectedDate}
-            onSelect={setSelectedDate}
-            className="w-full rounded-md border border-white/10 bg-black/20"
-            modifiers={{
-              active: (date) => {
-                const now = new Date();
-                return (
-                  date.getMonth() === now.getMonth() &&
-                  date.getFullYear() === now.getFullYear() &&
-                  studyDaysThisMonth.has(date.getDate())
-                );
-              },
-            }}
-            modifiersClassNames={{
-              active: "bg-primary/25 text-primary-foreground rounded-md",
-            }}
-          />
+  const renderWeeklyClassesPanel = () => {
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
 
-          <div className="mt-3 space-y-1 text-[11px] text-gray-400">
-            <p>
-              <span className="inline-block w-2 h-2 rounded-full bg-primary/60 mr-2 align-middle" />
-              Highlighted dates = days with recorded activity this month.
-            </p>
-            {selectedDate && (
-              <p>
-                Selected day: {selectedDate.toLocaleDateString()} {studyDaysThisMonth.has(selectedDate.getDate()) ? "(has activity)" : "(no activity logged)"}
+    const endOfWeekWindow = new Date(startOfToday);
+    endOfWeekWindow.setDate(endOfWeekWindow.getDate() + 7);
+
+    // Build 7 day lanes
+    const lanes = Array.from({ length: 7 }, (_, index) => {
+      const laneStart = new Date(startOfToday);
+      laneStart.setDate(startOfToday.getDate() + index);
+
+      const laneEnd = new Date(laneStart);
+      laneEnd.setDate(laneEnd.getDate() + 1);
+
+      const laneItems = weeklyClasses
+        .filter((s) => {
+          if (!s.start_time) return false;
+          const ts = new Date(s.start_time);
+          return ts >= laneStart && ts < laneEnd;
+        })
+        .sort((a, b) => new Date(a.start_time || 0).getTime() - new Date(b.start_time || 0).getTime());
+
+      const isToday = index === 0;
+
+      return {
+        key: laneStart.toISOString().slice(0, 10),
+        dayLabel: isToday ? "Today" : laneStart.toLocaleDateString(undefined, { weekday: "short" }),
+        dateNum: laneStart.getDate(),
+        monthLabel: laneStart.toLocaleDateString(undefined, { month: "short" }),
+        items: laneItems,
+        isToday,
+      };
+    });
+
+    const totalUpcoming = lanes.reduce((sum, l) => sum + l.items.filter((s) => (s.status || "").toLowerCase() !== "completed").length, 0);
+    const totalCompleted = weeklyClasses.filter((s) => (s.status || "").toLowerCase() === "completed").length;
+
+    const selectedDay = selectedWeekDay;
+    const setSelectedDay = (i: number) => setSelectedWeekDay(i);
+    const activeLane = lanes[selectedDay];
+
+    const getSessionStatus = (session: WeeklyClassItem) => {
+      const status = (session.status || "").toLowerCase();
+      if (status === "completed") return "completed";
+      if (!session.start_time) return "upcoming";
+      const ts = new Date(session.start_time).getTime();
+      const nowMs = Date.now();
+      // Consider "live" if within 1h window
+      if (ts <= nowMs && ts + 3600000 >= nowMs) return "live";
+      if (ts > nowMs) return "upcoming";
+      return "past";
+    };
+
+    const statusConfig: Record<string, { dot: string; label: string; text: string; bg: string; border: string }> = {
+      live: { dot: "bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]", label: "Live Now", text: "text-emerald-300", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+      upcoming: { dot: "bg-violet-400", label: "Upcoming", text: "text-violet-300", bg: "bg-violet-500/10", border: "border-violet-500/20" },
+      completed: { dot: "bg-zinc-500", label: "Completed", text: "text-zinc-400", bg: "bg-zinc-500/10", border: "border-zinc-500/20" },
+      past: { dot: "bg-zinc-600", label: "Past", text: "text-zinc-500", bg: "bg-zinc-500/5", border: "border-zinc-500/10" },
+    };
+
+    return (
+      <Card className={`${floatingGlassCardClass} h-full`}>
+        <CardHeader className="pb-2 px-8 pt-8">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">Weekly Schedule</CardTitle>
+              <p className="text-sm text-slate-600 dark:text-zinc-400 mt-1">
+                <span className="text-slate-900 dark:text-zinc-200 font-semibold">{totalUpcoming}</span> upcoming · <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{totalCompleted}</span> completed
               </p>
-            )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-slate-200 dark:border-white/15 bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl h-9 text-xs font-semibold"
+              onClick={() => navigate("/study-rooms")}
+            >
+              <Video className="h-3.5 w-3.5 mr-1.5" />
+              All Rooms
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="px-8 pb-8">
+          {/* Day Selector - Horizontal Pills */}
+          <div className="flex gap-2 mb-6 overflow-x-auto py-1 no-scrollbar">
+            {lanes.map((lane, i) => {
+              const hasClasses = lane.items.length > 0;
+              const isActive = selectedDay === i;
+              return (
+                <button
+                  key={lane.key}
+                  onClick={() => setSelectedDay(i)}
+                  className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-4 py-3 rounded-2xl border transition-all duration-300 min-w-[72px] relative ${
+                    isActive
+                      ? "bg-slate-100 dark:bg-white/10 border-slate-300 dark:border-white/20 shadow-[0_0_15px_rgba(167,139,250,0.15)]"
+                      : "bg-transparent border-slate-200/30 dark:border-white/[0.04] hover:bg-slate-100/50 dark:hover:bg-white/[0.04] hover:border-slate-300 dark:hover:border-white/10"
+                  }`}
+                >
+                  <span className={`text-[10px] font-bold uppercase tracking-[0.15em] ${isActive ? "text-violet-600 dark:text-violet-300" : "text-slate-600 dark:text-zinc-500"}`}>
+                    {lane.dayLabel}
+                  </span>
+                  <span className={`text-lg font-bold ${isActive ? "text-slate-900 dark:text-white" : "text-slate-700 dark:text-zinc-400"}`}>
+                    {lane.dateNum}
+                  </span>
+                  {hasClasses && (
+                    <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${lane.isToday ? "bg-emerald-400 animate-pulse" : "bg-violet-400"}`} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Session Timeline */}
+          {activeLane.items.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-white/[0.02] p-10 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center mx-auto mb-4">
+                <Calendar className="h-5 w-5 text-slate-600 dark:text-zinc-500" />
+              </div>
+              <p className="text-slate-700 dark:text-zinc-300 font-semibold text-sm mb-1">No classes on {activeLane.dayLabel}</p>
+              <p className="text-slate-600 dark:text-zinc-500 text-xs mb-4">Schedule a session or join an existing Study Room.</p>
+              <Button
+                size="sm"
+                className="rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 text-white hover:opacity-90 font-semibold text-xs h-9 px-5"
+                onClick={() => navigate("/study-rooms")}
+              >
+                Browse Study Rooms
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeLane.items.map((session, idx) => {
+                const status = getSessionStatus(session);
+                const config = statusConfig[status] || statusConfig.upcoming;
+                const timeStr = session.start_time
+                  ? new Date(session.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : "TBD";
+
+                return (
+                  <div
+                    key={session.id}
+                    className={`group rounded-2xl border ${config.border} bg-slate-50 dark:bg-white/[0.02] backdrop-blur-xl p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:bg-slate-100 dark:hover:bg-white/[0.04] relative overflow-hidden`}
+                    style={{ animationDelay: `${idx * 80}ms` }}
+                  >
+                    {/* Subtle left accent bar */}
+                    <div className={`absolute left-0 top-3 bottom-3 w-[3px] rounded-full ${status === "live" ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" : status === "completed" ? "bg-slate-400 dark:bg-zinc-600" : "bg-violet-500/70 dark:bg-violet-400/60"}`} />
+
+                    <div className="flex items-start justify-between gap-4 pl-4">
+                      <div className="flex-1 space-y-2.5">
+                        {/* Status + Time Row */}
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg ${config.bg} ${config.text} border ${config.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+                            {config.label}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300 bg-slate-100 dark:bg-white/5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/10">
+                            {timeStr}
+                          </span>
+                        </div>
+
+                        {/* Title */}
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white leading-snug line-clamp-2 group-hover:text-violet-700 dark:group-hover:text-violet-200 transition-colors">
+                          {session.title || "Untitled Session"}
+                        </h4>
+
+                        {/* Meta chips */}
+                        <div className="flex items-center gap-3 text-[11px] text-slate-600 dark:text-zinc-400">
+                          <span className="flex items-center gap-1">
+                            <span className="w-4 h-4 rounded-full bg-gradient-to-br from-violet-500/30 to-blue-500/30 flex items-center justify-center text-[8px] text-white font-bold">
+                              {(session.teacherName || "T").charAt(0)}
+                            </span>
+                            {session.teacherName || "Teacher"}
+                          </span>
+                          <span className="text-zinc-600">•</span>
+                          <span>{session.roomName || "Study Room"}</span>
+                        </div>
+                      </div>
+
+                      {/* Action area */}
+                      {status === "live" ? (
+                        <Button
+                          size="sm"
+                          className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs h-9 px-4 shadow-[0_0_15px_rgba(52,211,153,0.3)]"
+                          onClick={() => navigate("/study-rooms")}
+                        >
+                          Join
+                        </Button>
+                      ) : status === "upcoming" ? (
+                        <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-zinc-500 bg-slate-100 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200 dark:border-white/5">
+                          <Clock className="h-3 w-3" />
+                          {timeStr}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-600 dark:text-zinc-600 font-semibold uppercase tracking-wider">Done</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderCalendarAndGoals = () => (
+    <div className="space-y-6">
+      <Card className={floatingGlassCardClass}>
+        <CardHeader className="px-8 pt-8 pb-4">
+          <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">Study Calendar</CardTitle>
+        </CardHeader>
+        <CardContent className="px-8 pb-8">
+          <div className="[&_.rdp]:bg-slate-100 dark:[&_.rdp]:bg-black/20">
+            <UiCalendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={setSelectedDate}
+              className="w-full rounded-xl border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-black/20"
+              classNames={{
+                caption_label: "text-sm font-semibold text-slate-900 dark:text-white",
+                head_cell: "rounded-md w-9 font-semibold text-[0.8rem] text-slate-700 dark:text-zinc-300",
+                nav_button: "h-7 w-7 border border-slate-300 dark:border-white/20 bg-white/80 dark:bg-transparent text-slate-800 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-white/10 p-0 opacity-100",
+                day: "h-9 w-9 p-0 text-sm font-semibold text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 aria-selected:opacity-100",
+                day_today: "bg-slate-200 text-slate-900 dark:bg-white/10 dark:text-white font-bold",
+                day_outside: "text-slate-600 dark:text-zinc-500 opacity-95",
+                day_disabled: "text-slate-400 dark:text-zinc-600 opacity-60",
+              }}
+              modifiers={{
+                active: (date) => {
+                  const now = new Date();
+                  return (
+                    date.getMonth() === now.getMonth() &&
+                    date.getFullYear() === now.getFullYear() &&
+                    studyDaysThisMonth.has(date.getDate())
+                  );
+                },
+              }}
+              modifiersClassNames={{
+                active: "bg-violet-600 dark:bg-violet-400 text-white dark:text-black rounded-md font-bold",
+              }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className={floatingGlassCardClass}>
+        <CardHeader className="px-8 pt-8 pb-3">
+          <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">Practice Hub</CardTitle>
+        </CardHeader>
+        <CardContent className="px-8 pb-8 space-y-5">
+          <p className="text-sm text-slate-600 dark:text-zinc-400">One place for revision and recall. Use quizzes for testing and flashcards for spaced repetition.</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              className="h-11 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-100 font-semibold"
+              onClick={() => navigate("/quiz")}
+            >
+              Quiz Mode
+            </Button>
+            <Button
+              variant="outline"
+              className="h-11 rounded-xl border-slate-200 dark:border-white/15 bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10"
+              onClick={() => navigate("/flashcards")}
+            >
+              Flashcards
+            </Button>
+          </div>
+
+          <Separator className="bg-slate-200 dark:bg-white/10" />
+
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-600 dark:text-zinc-400 font-semibold">Momentum Score</span>
+            <span className="text-violet-700 dark:text-violet-200 font-bold">High Efficiency</span>
+          </div>
+
+          <div className="flex gap-2">
+            {["🔥", "🧠", "🎯"].map((emoji) => (
+              <div key={emoji} className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 flex items-center justify-center">
+                {emoji}
+              </div>
+            ))}
+          </div>
+
+          <Separator className="bg-slate-200 dark:bg-white/10" />
+
+          <div className="space-y-4">
+            <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-slate-600 dark:text-zinc-400">Learning Goals</p>
+          {[
+            { label: "Create 5 Courses", progress: Math.min(100, Math.round((stats.totalCourses / 5) * 100)), stat: `${stats.totalCourses}/5` },
+            { label: "Earn 10K XP", progress: Math.min(100, Math.round((stats.totalXP / 10000) * 100)), stat: `${Math.min(100, Math.round((stats.totalXP / 10000) * 100))}%` },
+          ].map((goal) => (
+            <div key={goal.label} className="space-y-2.5">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] font-bold">
+                <span className="text-slate-600 dark:text-zinc-400">{goal.label}</span>
+                <span className="rounded border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 px-2 py-1 text-slate-900 dark:text-zinc-200 normal-case tracking-normal text-xs">
+                  {goal.stat}
+                </span>
+              </div>
+              <Progress value={goal.progress} className="h-1.5 bg-slate-200 dark:bg-white/10" />
+            </div>
+          ))}
           </div>
         </CardContent>
       </Card>
     </div>
   );
 
-  const renderWeeklyClasses = (className = "") => (
-    <Card className={`bg-white/5 border-white/10 ${className}`.trim()}>
-      <CardHeader>
-        <CardTitle className="text-white flex items-center gap-2">
-          <Clock className="w-5 h-5 text-cyan-300" />
-          Weekly Classes
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {(() => {
-          const now = new Date();
-          const startOfToday = new Date(now);
-          startOfToday.setHours(0, 0, 0, 0);
+  const renderActivityFeed = () => (
+    <section className="space-y-4 mt-8">
+      <div className="flex items-center justify-between">
+        <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Activity Feed</h3>
+        <button className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          See Detailed Log
+        </button>
+      </div>
 
-          const endOfToday = new Date(startOfToday);
-          endOfToday.setDate(endOfToday.getDate() + 1);
-
-          const endOfWeek = new Date(startOfToday);
-          endOfWeek.setDate(endOfWeek.getDate() + 7);
-
-          const todayItems = weeklyClasses.filter((s) => {
-            if (!s.start_time) return false;
-            const ts = new Date(s.start_time);
-            return ts >= startOfToday && ts < endOfToday && (s.status || "").toLowerCase() !== "completed";
-          });
-
-          const weekItems = weeklyClasses.filter((s) => {
-            if (!s.start_time) return false;
-            const ts = new Date(s.start_time);
-            return ts >= endOfToday && ts <= endOfWeek && (s.status || "").toLowerCase() !== "completed";
-          });
-
-          const completedItems = weeklyClasses
-            .filter((s) => (s.status || "").toLowerCase() === "completed")
-            .slice(0, 8);
-
-          const columns = [
-            { key: "today", title: "Today", items: todayItems, accent: "text-cyan-300 border-cyan-400/20" },
-            { key: "week", title: "This Week", items: weekItems, accent: "text-violet-300 border-violet-400/20" },
-            { key: "completed", title: "Completed", items: completedItems, accent: "text-emerald-300 border-emerald-400/20" },
-          ];
-
-          const totalVisible = todayItems.length + weekItems.length + completedItems.length;
-
-          return (
-            <>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
-                  <p className="text-xs text-gray-400">Today</p>
-                  <p className="text-xl font-semibold text-white">{todayItems.length}</p>
+      <Card className={`${floatingGlassCardClass} overflow-hidden`}>
+        <CardContent className="p-0 divide-y divide-slate-200 dark:divide-white/10">
+          {recentActivity.length === 0 ? (
+            <div className="p-6 text-slate-600 dark:text-zinc-400 text-sm">No recent activity yet.</div>
+          ) : (
+            recentActivity.slice(0, 6).map((item) => (
+              <div key={item.id} className="p-6 flex items-center gap-4 hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-all duration-300 hover:-translate-y-1">
+                <div className="h-11 w-11 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 flex items-center justify-center text-violet-600 dark:text-violet-200">
+                  <TrendingUp className="h-5 w-5" />
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
-                  <p className="text-xs text-gray-400">This Week</p>
-                  <p className="text-xl font-semibold text-white">{weekItems.length}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 dark:text-white truncate">{item.action}</p>
+                  <p className="text-sm text-slate-600 dark:text-zinc-400 truncate">{item.title}</p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
-                  <p className="text-xs text-gray-400">Completed</p>
-                  <p className="text-xl font-semibold text-white">{completedItems.length}</p>
-                </div>
+                <p className="text-xs text-slate-500 dark:text-zinc-500 whitespace-nowrap">{item.dateLabel}</p>
               </div>
-
-              {totalVisible === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-center">
-                  <p className="text-white font-medium">No classes in the weekly board yet.</p>
-                  <p className="text-gray-400 text-sm mt-1">Join or schedule sessions in Study Rooms to populate this board.</p>
-                  <Button className="mt-3" size="sm" onClick={() => navigate("/study-rooms")}>
-                    Go to Study Rooms
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {columns.map((column) => (
-                    <div key={column.key} className={`rounded-xl border bg-black/20 p-3 ${column.accent}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold">{column.title}</h4>
-                        <span className="text-xs text-gray-400">{column.items.length}</span>
-                      </div>
-                      <div className="space-y-2 min-h-16">
-                        {column.items.length === 0 ? (
-                          <p className="text-xs text-gray-500">No classes</p>
-                        ) : (
-                          column.items.slice(0, 4).map((session) => (
-                            <div key={session.id} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                              <p className="text-sm font-medium text-white leading-tight">{session.title || "Untitled Session"}</p>
-                              <p className="text-[11px] text-gray-400 mt-1">{formatSessionDateTime(session.start_time)}</p>
-                              <p className="text-[11px] text-gray-500 mt-0.5">{session.roomName} • {session.teacherName}</p>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          );
-        })()}
-      </CardContent>
-    </Card>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </section>
   );
 
   const renderMyProgress = () => (
-    <div className="space-y-6">
-      {/* Recent Activity */}
-      <Card className="bg-white/5 border-white/10">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            Recent Activity
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {recentActivity.length === 0 && (
-            <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
-              <div>
-                <p className="text-white font-semibold text-sm">No recent activity</p>
-                <p className="text-gray-400 text-xs">Start by creating your first AI course.</p>
-              </div>
-              <Button size="sm" onClick={() => navigate("/ai-course-creator")}>Create</Button>
-            </div>
-          )}
-          {recentActivity.map((item) => (
-            <div key={item.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
-              <div>
-                <p className="text-white font-semibold text-sm">{item.action}</p>
-                <p className="text-gray-400 text-xs">{item.title}</p>
-              </div>
-              <span className="text-gray-500 text-xs">{item.dateLabel}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Learning Goals */}
-      <Card className="bg-white/5 border-white/10">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <Target className="w-5 h-5 text-amber-400" />
-            Learning Goals
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {[
-            {
-              goal: "Create 5 courses",
-              progress: Math.min(100, Math.round((stats.totalCourses / 5) * 100)),
-            },
-            {
-              goal: "Earn 10,000 XP",
-              progress: Math.min(100, Math.round((stats.totalXP / 10000) * 100)),
-            },
-            {
-              goal: "Maintain 7-day streak",
-              progress: Math.min(100, Math.round((stats.streak / 7) * 100)),
-            },
-          ].map((item, i) => (
-            <div key={i} className="space-y-2">
-              <div className="flex justify-between items-center">
-                <p className="text-white text-sm font-medium">{item.goal}</p>
-                <span className="text-gray-400 text-xs">{item.progress}%</span>
-              </div>
-              <Progress value={item.progress} className="h-2" />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+    <div>
+      {renderHero()}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-8">{renderWeeklyClassesPanel()}</div>
+        <div className="lg:col-span-4">{renderCalendarAndGoals()}</div>
+      </div>
+      {renderActivityFeed()}
     </div>
   );
 
   const renderLeaderboard = () => (
-    <Card className="bg-white/5 border-white/10">
-      <CardHeader>
-        <CardTitle className="text-white flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-primary" />
-          Top Learners
-        </CardTitle>
+    <Card className={floatingGlassCardClass}>
+      <CardHeader className="px-8 pt-8 pb-4">
+        <CardTitle className="text-2xl text-slate-900 dark:text-white">Top Learners</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="px-8 pb-8 space-y-3">
         {leaderboard.length === 0 && (
-          <div className="p-3 rounded-lg border bg-white/5 border-white/5 text-sm text-gray-300">
-            Leaderboard data is not available yet.
-          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 p-4 text-slate-700 dark:text-zinc-300">Leaderboard data is not available yet.</div>
         )}
         {leaderboard.map((item) => (
-          <div 
-            key={item.rank} 
-            className={`flex items-center justify-between p-3 rounded-lg border ${
-              item.isYou 
-                ? "bg-primary/20 border-primary/40" 
-                : "bg-white/5 border-white/5"
-            }`}
-          >
+          <div key={item.rank} className={`rounded-2xl border p-4 flex items-center justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${item.isYou ? "bg-violet-100 dark:bg-violet-500/10 border-violet-300 dark:border-violet-400/30" : "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10"}`}>
             <div className="flex items-center gap-3">
-              <span className="text-xl">
-                {item.rank === 1 ? "🏆" : item.rank === 2 ? "🥈" : item.rank === 3 ? "🥉" : "👤"}
-              </span>
-              <div>
-                <p className={item.isYou ? "text-primary font-semibold" : "text-white font-semibold text-sm"}>
-                  {item.name}
-                </p>
-              </div>
+              <div className="h-9 w-9 rounded-xl bg-slate-200 dark:bg-black/40 border border-slate-300 dark:border-white/10 flex items-center justify-center text-sm font-bold text-slate-700 dark:text-zinc-300">#{item.rank}</div>
+              <p className="text-slate-900 dark:text-white font-semibold">{item.name}</p>
             </div>
-            <p className="text-gray-400 text-sm font-semibold">{(item.xp / 1000).toFixed(0)}K XP</p>
+            <p className="text-slate-700 dark:text-zinc-300 font-semibold">{(item.xp / 1000).toFixed(0)}K XP</p>
           </div>
         ))}
       </CardContent>
@@ -953,78 +1286,118 @@ const Dashboard = () => {
 
   const renderAchievements = () => (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {computeAchievements(stats).map((achievement, i) => (
-        <div
-          key={i}
-          className={`flex flex-col items-center justify-center p-6 rounded-xl transition-all group cursor-pointer border ${
-            achievement.unlocked
-              ? "bg-gradient-to-br from-white/5 to-primary/10 border-primary/30 hover:border-primary/50"
-              : "bg-gradient-to-br from-white/5 to-white/0 border-white/10 hover:border-white/20"
-          }`}
-        >
-          <p className="text-4xl mb-2 group-hover:scale-125 transition-transform">{achievement.icon}</p>
-          <p className="text-white font-semibold text-sm text-center">{achievement.title}</p>
-          <p className="text-gray-400 text-xs text-center mt-1">{achievement.desc}</p>
-          <p className={`text-[11px] mt-2 font-semibold ${achievement.unlocked ? "text-primary" : "text-gray-500"}`}>
-            {achievement.unlocked ? "Unlocked" : "Locked"}
-          </p>
-        </div>
+      {computeAchievements(stats).map((achievement) => (
+        <Card key={achievement.title} className={`${floatingGlassCardClass} rounded-2xl ${achievement.unlocked ? "border-violet-300 dark:border-violet-300/25" : "border-slate-200 dark:border-white/10"}`}>
+          <CardContent className="p-5 text-center">
+            <p className="text-3xl mb-2">{achievement.icon}</p>
+            <p className="text-slate-900 dark:text-white font-semibold text-sm">{achievement.title}</p>
+            <p className="text-slate-600 dark:text-zinc-400 text-xs mt-1">{achievement.desc}</p>
+            <p className={`text-[11px] mt-2 font-bold ${achievement.unlocked ? "text-violet-700 dark:text-violet-200" : "text-slate-500 dark:text-zinc-500"}`}>
+              {achievement.unlocked ? "Unlocked" : "Locked"}
+            </p>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
 
   const renderTabContent = () => {
-    switch (activeTab) {
-      case "progress":
-        return renderMyProgress();
-      case "leaderboard":
-        return renderLeaderboard();
-      case "achievements":
-        return renderAchievements();
-      default:
-        return renderMyProgress();
-    }
+    if (activeTab === "leaderboard") return renderLeaderboard();
+    if (activeTab === "achievements") return renderAchievements();
+    return renderMyProgress();
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-[#05070f] to-[#0a0e1a]">
-        <div className="text-white">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-slate-100 dark:bg-[#0f0f0f] transition-colors duration-500">
+        <div className="text-slate-900 dark:text-white">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-[#05070f] to-[#0a0e1a]">
+    <div className="min-h-screen bg-slate-100 dark:bg-[#0f0f0f] text-slate-900 dark:text-white overflow-x-hidden transition-colors duration-500">
+      <div
+        className="fixed inset-0 pointer-events-none z-0"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 2px 2px, rgba(0,0,0,0.02) 1px, transparent 0), radial-gradient(circle at 2px 2px, rgba(255,255,255,0.03) 1px, transparent 0)",
+          backgroundSize: "40px 40px, 40px 40px",
+        }}
+      />
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute -top-[15%] -right-[10%] h-[55%] w-[55%] bg-violet-500/[0.08] blur-[140px]" />
+        <div className="absolute -bottom-[10%] -left-[10%] h-[55%] w-[55%] bg-blue-500/[0.06] blur-[140px]" />
+        <div className="absolute top-[35%] left-[20%] h-[35%] w-[35%] bg-violet-500/5 blur-[130px]" />
+      </div>
+
       <AppSidebar />
-      <main className="ml-64 flex-1 overflow-y-auto">
-        <div className="min-h-screen p-6 md:p-8">
-          {/* Header */}
-          <div className="mb-8 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-4xl font-bold text-white mb-2">Dashboard</h1>
-              <p className="text-gray-400">Welcome back! Keep up the momentum.</p>
-            </div>
+
+      <header className={`fixed left-0 right-0 top-0 z-30 h-20 border-b border-slate-200 dark:border-white/10 bg-white/70 dark:bg-black/40 backdrop-blur-xl transition-all duration-300 ${isSidebarCollapsed ? "md:left-16" : "md:left-64"}`}>
+        <div className="h-full px-4 md:px-10 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="md:hidden text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-80 border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white">
+                <SheetHeader>
+                  <SheetTitle className="text-slate-900 dark:text-white">EduSync</SheetTitle>
+                  <SheetDescription className="text-slate-600 dark:text-zinc-400">Navigate your learning workspace.</SheetDescription>
+                </SheetHeader>
+                <div className="mt-6 space-y-2">
+                  {mobileNavItems.map((item) => (
+                    <Button
+                      key={item.path}
+                      variant="ghost"
+                      className="w-full justify-between text-slate-700 dark:text-zinc-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
+                      onClick={() => navigate(item.path)}
+                    >
+                      <span>{item.label}</span>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  ))}
+                </div>
+              </SheetContent>
+            </Sheet>
+
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Academy Dashboard</h1>
+          </div>
+
+          <div className="hidden lg:flex items-center gap-7 text-[10px] font-bold uppercase tracking-[0.18em]">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative py-1 transition-colors ${activeTab === tab.id ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-white"}`}
+              >
+                {tab.label}
+                {activeTab === tab.id && <span className="absolute -bottom-[23px] left-0 h-[2px] w-full bg-violet-300" />}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10">
+              <Search className="h-4 w-4" />
+            </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="relative border-white/20 bg-white/5 text-white hover:bg-white/10">
-                  <Bell className="h-4 w-4 mr-2" />
-                  Notifications
-                  {unreadNotificationCount > 0 && (
-                    <Badge className="ml-2 bg-red-500 hover:bg-red-500 text-white text-[10px] h-5 px-1.5">
-                      {unreadNotificationCount}
-                    </Badge>
-                  )}
+                <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-xl text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10">
+                  <Bell className="h-4 w-4" />
+                  {unreadNotificationCount > 0 && <span className="absolute right-3 top-3 h-1.5 w-1.5 rounded-full bg-rose-400" />}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[360px] max-h-[420px] overflow-y-auto bg-[#101626] border-white/10 text-white">
-                <DropdownMenuLabel className="flex items-center justify-between">
-                  <span>App Notifications</span>
+              <DropdownMenuContent align="end" className="w-[360px] bg-white dark:bg-zinc-950 border-slate-200 dark:border-white/10 text-slate-900 dark:text-white p-0">
+                <div className="flex items-center justify-between px-3 py-2">
+                  <DropdownMenuLabel className="p-0">App Notifications</DropdownMenuLabel>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-xs text-gray-300 hover:text-white"
+                    className="h-7 px-2 text-xs text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white"
                     onClick={(e) => {
                       e.preventDefault();
                       markAllNotificationsRead();
@@ -1032,66 +1405,74 @@ const Dashboard = () => {
                   >
                     <CheckCheck className="h-3.5 w-3.5 mr-1" /> Mark all read
                   </Button>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
+                </div>
+                <DropdownMenuSeparator className="bg-slate-200 dark:bg-white/10" />
 
-                {notifications.length === 0 && (
-                  <DropdownMenuItem className="py-3 text-gray-400" disabled>
-                    No notifications right now.
-                  </DropdownMenuItem>
-                )}
+                <ScrollArea className="h-[360px]">
+                  <div className="p-1">
+                    {notifications.length === 0 && (
+                      <DropdownMenuItem className="py-3 text-zinc-400" disabled>
+                        No notifications right now.
+                      </DropdownMenuItem>
+                    )}
 
-                {notifications.map((notification) => {
-                  const isRead = readNotificationIds.includes(notification.id);
-                  return (
-                    <DropdownMenuItem
-                      key={notification.id}
-                      className={`items-start flex-col gap-1 py-2.5 px-2 cursor-pointer ${isRead ? "opacity-70" : ""}`}
-                      onClick={() => {
-                        markNotificationRead(notification.id);
-                        if (notification.route) navigate(notification.route);
-                      }}
-                    >
-                      <div className="w-full flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-white line-clamp-1">{notification.title}</p>
-                        {!isRead && <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />}
-                      </div>
-                      <p className="text-xs text-gray-400 line-clamp-2">{notification.description}</p>
-                    </DropdownMenuItem>
-                  );
-                })}
+                    {notifications.map((notification) => {
+                      const isRead = readNotificationIds.includes(notification.id);
+                      return (
+                        <DropdownMenuItem
+                          key={notification.id}
+                          className={`items-start flex-col gap-1 py-2.5 px-2 cursor-pointer ${isRead ? "opacity-70" : ""}`}
+                          onClick={() => {
+                            markNotificationRead(notification.id);
+                            if (notification.route) navigate(notification.route);
+                          }}
+                        >
+                          <div className="w-full flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-slate-900 dark:text-white line-clamp-1">{notification.title}</p>
+                            {!isRead && <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-zinc-200 shrink-0" />}
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-zinc-400 line-clamp-2">{notification.description}</p>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="px-1.5 hover:bg-slate-100 dark:hover:bg-white/10 rounded-xl">
+                  <Avatar className="h-9 w-9 border border-slate-200 dark:border-white/10">
+                    {avatarUrl && <AvatarImage src={avatarUrl} alt={profileName} />}
+                    <AvatarFallback className="bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-white text-xs">
+                      {profileName?.charAt(0).toUpperCase() || "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-white dark:bg-zinc-950 border-slate-200 dark:border-white/10 text-slate-900 dark:text-white">
+                <DropdownMenuLabel className="text-slate-900 dark:text-white">{profileName}</DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-slate-200 dark:bg-white/10" />
+                <DropdownMenuItem className="text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-white/10" onClick={() => navigate("/ai-course-creator")}>Create Course</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-
-          {/* Stats Header */}
-          {renderStats()}
-
-          {/* Profile Card */}
-          {renderProfileCard()}
-
-          {/* Tab Navigation */}
-          <div className="flex gap-2 mb-6 border-b border-white/10 overflow-x-auto pb-4">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 font-semibold text-sm whitespace-nowrap transition-all ${
-                  activeTab === tab.id
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab Content */}
-          {renderTabContent()}
         </div>
+      </header>
+
+      <main className={`relative z-10 pt-28 pb-24 px-4 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-16" : "md:ml-64"} md:px-10`}>
+        {renderStats()}
+        {renderTabContent()}
       </main>
+
+      <Button
+        onClick={() => navigate("/ai-course-creator")}
+        className="fixed bottom-8 right-8 z-30 rounded-full h-14 px-5 bg-violet-500/25 border border-violet-300/30 text-white backdrop-blur-xl hover:bg-violet-500/35 shadow-[0_15px_35px_rgba(139,92,246,0.4)]"
+      >
+        <Zap className="h-5 w-5 mr-2" />
+        Boost Focus
+      </Button>
     </div>
   );
 };

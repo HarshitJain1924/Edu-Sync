@@ -119,7 +119,7 @@ const Signup = () => {
 
           <div className="mt-6 text-center text-sm">
             <span className="text-muted-foreground">Already have an account? </span>
-            <Link to="/login" className="text-primary hover:underline font-medium">
+            <Link to="/auth?tab=login" className="text-primary hover:underline font-medium">
               Log in
             </Link>
           </div>

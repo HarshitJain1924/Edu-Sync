@@ -1,6 +1,6 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Brain, ArrowLeft, TrendingUp, Award, Clock } from "lucide-react";
+import { Brain, TrendingUp, Award, Clock, BarChart3, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useEffect, useState } from "react";
@@ -16,6 +16,8 @@ import {
   PieChart,
   XAxis,
   YAxis,
+  Area,
+  AreaChart,
 } from "recharts";
 import {
   ChartContainer,
@@ -25,6 +27,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import AppSidebar from "@/components/AppSidebar";
 
 interface SubjectPerformance {
   subject: string;
@@ -51,7 +54,8 @@ interface AnalyticsOverview {
   aiSessions: number;
 }
 
-const formatDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const formatDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
 const computeGrade = (avgScore: number) => {
   if (avgScore >= 95) return "A+";
@@ -68,7 +72,6 @@ const computeGrade = (avgScore: number) => {
 const Analytics = () => {
   useRequireAuth();
   const navigate = useNavigate();
-  const [role, setRole] = useState<string>("student");
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<AnalyticsOverview>({
     overallGrade: "N/A",
@@ -82,18 +85,7 @@ const Analytics = () => {
   useEffect(() => {
     const loadAnalytics = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (roleData?.role) setRole(roleData.role);
+      if (!user) { setLoading(false); return; }
 
       const { data: progressRows } = await supabase
         .from("user_progress")
@@ -114,14 +106,8 @@ const Analytics = () => {
       const topicByQuizId = new Map<string, string>();
 
       if (quizIds.length > 0) {
-        const { data: quizSets } = await supabase
-          .from("quiz_sets")
-          .select("id, topic")
-          .in("id", quizIds);
-
-        (quizSets || []).forEach((quiz: any) => {
-          topicByQuizId.set(quiz.id, quiz.topic || "General");
-        });
+        const { data: quizSets } = await supabase.from("quiz_sets").select("id, topic").in("id", quizIds);
+        (quizSets || []).forEach((quiz: any) => { topicByQuizId.set(quiz.id, quiz.topic || "General"); });
       }
 
       const quizAttempts: QuizAttemptRecord[] = quizSetAttempts.map((attempt) => ({
@@ -130,7 +116,6 @@ const Analytics = () => {
         createdAt: attempt.createdAt,
       }));
 
-      // Placement Prep quizzes are saved in placement_scores.
       try {
         const { data: placementRows } = await supabase
           .from("placement_scores")
@@ -145,21 +130,13 @@ const Analytics = () => {
             const normalizedScore = total > 0 ? (rawScore / total) * 100 : rawScore;
             const topic = row.topic || row.test_type || "Placement";
             const createdAt = new Date(row.created_at);
-
             if (!Number.isFinite(normalizedScore) || Number.isNaN(createdAt.getTime())) return null;
-
-            return {
-              topic,
-              score: Math.max(0, Math.min(100, normalizedScore)),
-              createdAt,
-            };
+            return { topic, score: Math.max(0, Math.min(100, normalizedScore)), createdAt };
           })
           .filter((item): item is QuizAttemptRecord => item !== null);
 
         quizAttempts.push(...normalizedPlacementAttempts);
-      } catch {
-        // Keep analytics resilient if placement_scores is unavailable.
-      }
+      } catch { /* resilient */ }
 
       const grouped = new Map<string, Array<{ score: number; createdAt: Date }>>();
       quizAttempts.forEach((attempt) => {
@@ -176,7 +153,6 @@ const Analytics = () => {
           const last = attempts[attempts.length - 1]?.score || 0;
           const delta = last - first;
           const pct = first > 0 ? Math.round((delta / first) * 100) : (delta > 0 ? 100 : 0);
-
           return {
             subject,
             score: Math.max(0, Math.min(100, Math.round(avg))),
@@ -215,7 +191,6 @@ const Analytics = () => {
         const key = formatDateKey(day);
         const bucket = buckets.get(key);
         if (!bucket) return;
-
         const hours = Math.max(0, Number(row.progress_seconds || 0) / 3600);
         bucket.hours += hours;
       });
@@ -237,19 +212,11 @@ const Analytics = () => {
       const previousWindowStart = new Date(now);
       previousWindowStart.setDate(now.getDate() - 28);
 
-      const currentScores = quizAttempts
-        .filter((q) => q.createdAt >= currentWindowStart)
-        .map((q) => q.score);
-      const previousScores = quizAttempts
-        .filter((q) => q.createdAt >= previousWindowStart && q.createdAt < currentWindowStart)
-        .map((q) => q.score);
+      const currentScores = quizAttempts.filter((q) => q.createdAt >= currentWindowStart).map((q) => q.score);
+      const previousScores = quizAttempts.filter((q) => q.createdAt >= previousWindowStart && q.createdAt < currentWindowStart).map((q) => q.score);
 
-      const currentAvg = currentScores.length > 0
-        ? currentScores.reduce((sum, score) => sum + score, 0) / currentScores.length
-        : 0;
-      const previousAvg = previousScores.length > 0
-        ? previousScores.reduce((sum, score) => sum + score, 0) / previousScores.length
-        : 0;
+      const currentAvg = currentScores.length > 0 ? currentScores.reduce((s, sc) => s + sc, 0) / currentScores.length : 0;
+      const previousAvg = previousScores.length > 0 ? previousScores.reduce((s, sc) => s + sc, 0) / previousScores.length : 0;
 
       const improvementPct = previousAvg > 0
         ? Math.round(((currentAvg - previousAvg) / previousAvg) * 100)
@@ -268,210 +235,286 @@ const Analytics = () => {
     loadAnalytics();
   }, []);
 
-  const getHomePath = () => {
-    if (role === "admin") return "/admin";
-    if (role === "teacher") return "/teacher";
-    return "/dashboard";
-  };
-
-  const subjectChartData = performanceData.map((item) => ({
-    subject: item.subject,
-    score: item.score,
-  }));
-
-  const weeklyChartData = weeklyActivity.map((item) => ({
-    day: item.day,
-    hours: item.hours,
-  }));
+  // ─── Chart Data ──────────────────────────────────────────────────
+  const subjectChartData = performanceData.map((item) => ({ subject: item.subject, score: item.score }));
+  const weeklyChartData = weeklyActivity.map((item) => ({ day: item.day, hours: item.hours }));
 
   const scoreBandData = [
-    {
-      name: "Excellent (85+)",
-      value: performanceData.filter((item) => item.score >= 85).length,
-      fill: "#10b981",
-    },
-    {
-      name: "Good (70-84)",
-      value: performanceData.filter((item) => item.score >= 70 && item.score < 85).length,
-      fill: "#3b82f6",
-    },
-    {
-      name: "Needs Work (<70)",
-      value: performanceData.filter((item) => item.score < 70).length,
-      fill: "#f59e0b",
-    },
+    { name: "Excellent (85+)", value: performanceData.filter((i) => i.score >= 85).length, fill: "#10b981" },
+    { name: "Good (70-84)", value: performanceData.filter((i) => i.score >= 70 && i.score < 85).length, fill: "#6366f1" },
+    { name: "Needs Work (<70)", value: performanceData.filter((i) => i.score < 70).length, fill: "#f59e0b" },
   ];
 
-  const subjectChartConfig = {
-    score: {
-      label: "Score",
-      color: "#4f46e5",
-    },
-  } satisfies ChartConfig;
-
-  const weeklyChartConfig = {
-    hours: {
-      label: "Hours",
-      color: "#06b6d4",
-    },
-  } satisfies ChartConfig;
-
+  const subjectChartConfig = { score: { label: "Score", color: "#8b5cf6" } } satisfies ChartConfig;
+  const weeklyChartConfig = { hours: { label: "Hours", color: "#06b6d4" } } satisfies ChartConfig;
   const scoreBandChartConfig = {
     excellent: { label: "Excellent", color: "#10b981" },
-    good: { label: "Good", color: "#3b82f6" },
+    good: { label: "Good", color: "#6366f1" },
     needsWork: { label: "Needs Work", color: "#f59e0b" },
   } satisfies ChartConfig;
 
+  const floatingGlassCard =
+    "rounded-3xl bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] shadow-[0_20px_40px_rgba(0,0,0,0.4)] transition-all duration-300";
+
+  // ─── Overview Stat Cards ─────────────────────────────────────────
+  const statsItems = [
+    {
+      label: "Overall Grade",
+      value: overview.overallGrade,
+      icon: Award,
+      gradient: "from-violet-500 to-purple-600",
+      glow: "rgba(139,92,246,0.25)",
+    },
+    {
+      label: "This Week",
+      value: `${overview.thisWeekHours}h`,
+      icon: Clock,
+      gradient: "from-blue-500 to-cyan-500",
+      glow: "rgba(6,182,212,0.25)",
+    },
+    {
+      label: "Improvement",
+      value: `${overview.improvementPct >= 0 ? "+" : ""}${overview.improvementPct}%`,
+      icon: TrendingUp,
+      gradient: overview.improvementPct >= 0 ? "from-emerald-500 to-teal-500" : "from-rose-500 to-red-500",
+      glow: overview.improvementPct >= 0 ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.2)",
+    },
+    {
+      label: "AI Sessions",
+      value: `${overview.aiSessions}`,
+      icon: Brain,
+      gradient: "from-indigo-500 to-violet-600",
+      glow: "rgba(99,102,241,0.25)",
+    },
+  ];
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">Loading analytics...</div>
+      <div className="flex h-screen bg-slate-100 dark:bg-[#0f0f0f] transition-colors duration-500">
+        <AppSidebar />
+        <main className="ml-64 flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <BarChart3 className="h-10 w-10 text-violet-400 animate-pulse" />
+            <p className="text-slate-600 dark:text-zinc-500 text-sm font-semibold">Loading analytics…</p>
+          </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between shadow-soft">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate(getHomePath())}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-xl font-bold">Performance Analytics</h1>
-            <p className="text-sm text-muted-foreground">Track your learning progress</p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm">
-          Export Report
-        </Button>
-      </header>
-
-      <main className="p-8 max-w-7xl mx-auto">
-        {/* Overview Stats */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card className="shadow-soft">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-xl bg-gradient-to-br from-primary to-primary/70 shadow-medium">
-                  <Award className="h-6 w-6 text-white" />
-                </div>
-                <span className="text-3xl font-bold">{overview.overallGrade}</span>
-              </div>
-              <p className="text-sm text-muted-foreground">Overall Grade</p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-soft">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-xl bg-gradient-to-br from-secondary to-accent shadow-medium">
-                  <Clock className="h-6 w-6 text-white" />
-                </div>
-                <span className="text-3xl font-bold">{overview.thisWeekHours}h</span>
-              </div>
-              <p className="text-sm text-muted-foreground">This Week</p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-soft">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-xl bg-gradient-to-br from-accent to-secondary shadow-medium">
-                  <TrendingUp className="h-6 w-6 text-white" />
-                </div>
-                <span className="text-3xl font-bold">{overview.improvementPct >= 0 ? "+" : ""}{overview.improvementPct}%</span>
-              </div>
-              <p className="text-sm text-muted-foreground">Improvement</p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-soft">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-xl bg-gradient-to-br from-primary to-accent shadow-medium">
-                  <Brain className="h-6 w-6 text-white" />
-                </div>
-                <span className="text-3xl font-bold">{overview.aiSessions}</span>
-              </div>
-              <p className="text-sm text-muted-foreground">AI Sessions</p>
-            </CardContent>
-          </Card>
+    <div className="flex h-screen bg-slate-100 dark:bg-[#0f0f0f] transition-colors duration-500">
+      <AppSidebar />
+      <main className="ml-64 flex-1 overflow-y-auto relative isolate">
+        <div
+          className="fixed inset-0 pointer-events-none z-[1]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 2px 2px, rgba(255,255,255,0.03) 1px, transparent 0)",
+            backgroundSize: "40px 40px",
+          }}
+        />
+        {/* Ambient Depth Orbs */}
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden ml-64">
+          <div className="absolute -top-[15%] -right-[10%] h-[55%] w-[55%] bg-violet-500/[0.08] blur-[140px]" />
+          <div className="absolute -bottom-[10%] -left-[10%] h-[55%] w-[55%] bg-blue-500/[0.06] blur-[140px]" />
+          <div className="absolute top-[35%] left-[20%] h-[35%] w-[35%] bg-violet-500/5 blur-[130px]" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <Card className="shadow-medium lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Performance by Subject</CardTitle>
-              <CardDescription>Average score (%) across topics</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {subjectChartData.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No quiz performance data yet.</div>
-              ) : (
-                <ChartContainer config={subjectChartConfig} className="h-[320px] w-full">
-                  <BarChart data={subjectChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="subject" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
-                    <YAxis domain={[0, 100]} tickLine={false} axisLine={false} />
+        <div className="relative z-10 min-h-screen p-8 md:p-10">
+          {/* Header */}
+          <header className="mb-10 flex items-start justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 border border-white/10">
+                  <BarChart3 className="h-6 w-6 text-violet-300" />
+                </div>
+                <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">Performance Analytics</h1>
+              </div>
+              <p className="text-slate-600 dark:text-zinc-400 text-base">
+                Track your learning progress, quiz scores, and study habits over time.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="shrink-0 border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-white/[0.03] text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-white/[0.06] hover:text-slate-900 dark:hover:text-white rounded-xl h-10 px-5 text-xs font-semibold gap-2"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export Report
+            </Button>
+          </header>
+
+          {/* Overview Stats */}
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
+            {statsItems.map((item) => (
+              <div
+                key={item.label}
+                className={`${floatingGlassCard} p-6 hover:-translate-y-1 hover:shadow-xl group`}
+              >
+                <div className="flex items-center justify-between mb-5">
+                  <div
+                    className={`p-3 rounded-xl bg-gradient-to-br ${item.gradient} shadow-lg transition-all duration-300 group-hover:scale-110`}
+                    style={{ boxShadow: `0 0 20px ${item.glow}` }}
+                  >
+                    <item.icon className="h-5 w-5 text-white dark:text-white" />
+                  </div>
+                  <span className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">{item.value}</span>
+                </div>
+                <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-600 dark:text-zinc-500">{item.label}</p>
+              </div>
+            ))}
+          </section>
+
+          {/* Charts Row: Performance + Score Distribution */}
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            {/* Performance by Subject — Bar Chart */}
+            <div className={`${floatingGlassCard} lg:col-span-2`}>
+              <CardHeader className="px-8 pt-8 pb-2">
+                <CardTitle className="text-xl font-bold text-white">Performance by Subject</CardTitle>
+                <p className="text-xs text-slate-600 dark:text-zinc-500 mt-1">Average score (%) across your top topics</p>
+              </CardHeader>
+              <CardContent className="px-8 pb-8">
+                {subjectChartData.length === 0 ? (
+                  <div className="h-[320px] flex items-center justify-center">
+                    <div className="text-center space-y-2">
+                      <BarChart3 className="h-8 w-8 text-slate-400 dark:text-zinc-600 mx-auto" />
+                      <p className="text-slate-600 dark:text-zinc-500 text-sm">No quiz performance data yet.</p>
+                      <p className="text-slate-700 dark:text-zinc-600 text-xs">Complete some quizzes to see your stats here.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <ChartContainer config={subjectChartConfig} className="h-[320px] w-full">
+                    <BarChart data={subjectChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                      <XAxis dataKey="subject" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={60} tick={{ fill: "#71717a", fontSize: 11 }} />
+                      <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                      <Bar dataKey="score" radius={[8, 8, 0, 0]} fill="url(#barGradient)" />
+                      <defs>
+                        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={1} />
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.7} />
+                        </linearGradient>
+                      </defs>
+                    </BarChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </div>
+
+            {/* Score Distribution — Pie Chart */}
+            <div className={floatingGlassCard}>
+              <CardHeader className="px-8 pt-8 pb-2">
+                <CardTitle className="text-xl font-bold text-white">Score Distribution</CardTitle>
+                <p className="text-xs text-slate-600 dark:text-zinc-500 mt-1">Topic quality breakdown</p>
+              </CardHeader>
+              <CardContent className="px-8 pb-8">
+                {subjectChartData.length === 0 ? (
+                  <div className="h-[320px] flex items-center justify-center">
+                    <p className="text-slate-600 dark:text-zinc-500 text-sm">No data to visualize.</p>
+                  </div>
+                ) : (
+                  <ChartContainer config={scoreBandChartConfig} className="h-[320px] w-full">
+                    <PieChart>
+                      <Pie data={scoreBandData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={98} paddingAngle={4} stroke="none">
+                        {scoreBandData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                      <ChartLegend content={<ChartLegendContent />} verticalAlign="bottom" />
+                    </PieChart>
+                  </ChartContainer>
+                )}
+              </CardContent>
+            </div>
+          </section>
+
+          {/* Weekly Activity Trend — Area Chart */}
+          <section>
+            <div className={floatingGlassCard}>
+              <CardHeader className="px-8 pt-8 pb-2">
+                <CardTitle className="text-xl font-bold text-white">Weekly Activity Trend</CardTitle>
+                <p className="text-xs text-slate-600 dark:text-zinc-500 mt-1">Study hours over the last 7 days</p>
+              </CardHeader>
+              <CardContent className="px-8 pb-8">
+                <ChartContainer config={weeklyChartConfig} className="h-[300px] w-full">
+                  <AreaChart data={weeklyChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                    <defs>
+                      <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                    <YAxis tickLine={false} axisLine={false} allowDecimals={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                     <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                    <Bar dataKey="score" radius={[8, 8, 0, 0]} fill="var(--color-score)" />
-                  </BarChart>
+                    <Area
+                      type="monotone"
+                      dataKey="hours"
+                      stroke="#06b6d4"
+                      strokeWidth={2.5}
+                      fill="url(#areaGradient)"
+                      dot={{ fill: "#06b6d4", stroke: "#0a0a0c", strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, stroke: "#06b6d4", strokeWidth: 2, fill: "#0a0a0c" }}
+                    />
+                  </AreaChart>
                 </ChartContainer>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </div>
+          </section>
 
-          <Card className="shadow-medium">
-            <CardHeader>
-              <CardTitle>Score Distribution</CardTitle>
-              <CardDescription>Topic quality mix</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {subjectChartData.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No data to visualize.</div>
-              ) : (
-                <ChartContainer config={scoreBandChartConfig} className="h-[320px] w-full">
-                  <PieChart>
-                    <Pie data={scoreBandData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={98} paddingAngle={4}>
-                      {scoreBandData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
-                    <ChartLegend content={<ChartLegendContent />} verticalAlign="bottom" />
-                  </PieChart>
-                </ChartContainer>
-              )}
-            </CardContent>
-          </Card>
+          {/* Subject Performance Table */}
+          {performanceData.length > 0 && (
+            <section className="mt-8">
+              <div className={floatingGlassCard}>
+                <CardHeader className="px-8 pt-8 pb-4">
+                  <CardTitle className="text-xl font-bold text-white">Subject Breakdown</CardTitle>
+                  <p className="text-xs text-slate-600 dark:text-zinc-500 mt-1">Detailed performance per topic with trend indicators</p>
+                </CardHeader>
+                <CardContent className="px-8 pb-8">
+                  <div className="space-y-2">
+                    {performanceData.map((subject) => (
+                      <div
+                        key={subject.subject}
+                        className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04] transition-colors"
+                      >
+                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 border border-white/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-violet-300">
+                              {subject.subject.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">{subject.subject}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-[10px] font-bold ${subject.trend === "up" ? "text-emerald-400" : "text-rose-400"}`}>
+                                {subject.change}
+                              </span>
+                              <TrendingUp className={`h-3 w-3 ${subject.trend === "up" ? "text-emerald-400" : "text-rose-400 rotate-180"}`} />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          {/* Score bar */}
+                          <div className="w-32 h-2 rounded-full bg-white/[0.06] overflow-hidden hidden sm:block">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-500"
+                              style={{ width: `${subject.score}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-bold text-white w-10 text-right">{subject.score}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </div>
+            </section>
+          )}
         </div>
-
-        <Card className="shadow-medium mt-8">
-          <CardHeader>
-            <CardTitle>Weekly Activity Trend</CardTitle>
-            <CardDescription>Study hours over the last 7 days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={weeklyChartConfig} className="h-[300px] w-full">
-              <LineChart data={weeklyChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="day" tickLine={false} axisLine={false} />
-                <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
-                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                <Line
-                  type="monotone"
-                  dataKey="hours"
-                  stroke="var(--color-hours)"
-                  strokeWidth={3}
-                  dot={{ fill: "var(--color-hours)", strokeWidth: 0, r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
       </main>
     </div>
   );

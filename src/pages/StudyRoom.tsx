@@ -554,8 +554,7 @@ export default function StudyRoom() {
   const myHandRaised = participants.find(p => p.user_id === currentUser?.id)?.hand_raised ?? false;
 
   return (
-    <div className="flex flex-col h-screen bg-[#0f111a] text-white overflow-hidden">
-      {/* Screen Share Request Popup for Teacher */}
+    <div className="flex flex-col h-screen bg-slate-100 dark:bg-[#0f111a] text-slate-900 dark:text-white overflow-hidden transition-colors duration-500">
       {isTeacher && pendingScreenRequest && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-800 border border-amber-400/50 rounded-2xl p-5 shadow-2xl flex flex-col gap-3 min-w-[300px]">
           <p className="font-semibold text-amber-300">📡 Screen Share Request</p>
@@ -572,9 +571,9 @@ export default function StudyRoom() {
       )}
 
       {/* Header */}
-      <header className="h-16 bg-[#161b22] border-b border-white/10 px-6 flex items-center justify-between shrink-0 z-10">
+      <header className="h-16 bg-slate-100 dark:bg-[#161b22] border-b border-slate-300 dark:border-white/10 px-6 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={handleLeaveRoom} className="hover:bg-white/10 rounded-full">
+          <Button variant="ghost" size="icon" onClick={handleLeaveRoom} className="hover:bg-slate-200 dark:hover:bg-white/10 rounded-full">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -616,7 +615,7 @@ export default function StudyRoom() {
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Stage Area */}
         <div className="flex-1 p-4 flex flex-col min-h-0 relative">
-          <div className="flex-1 bg-[#1c212b] rounded-2xl overflow-hidden shadow-2xl border border-white/5 flex items-center justify-center relative">
+          <div className="flex-1 bg-slate-200 dark:bg-[#1c212b] rounded-2xl overflow-hidden shadow-2xl border border-slate-300 dark:border-white/5 flex items-center justify-center relative">
             {showWhiteboard ? (
               <Whiteboard roomId={roomId || ''} userId={currentUser?.id} isReadOnly={!isTeacher && !allowStudentDrawing} />
             ) : (
@@ -627,35 +626,35 @@ export default function StudyRoom() {
           </div>
 
           {/* Bottom Toolbar */}
-          <div className="h-20 shrink-0 mt-4 bg-[#161b22] border border-white/10 rounded-2xl flex items-center justify-center gap-3 md:gap-5 px-4 shadow-xl">
-            <Button size="icon" className={`h-12 w-12 rounded-full ${micOn ? 'bg-slate-700 hover:bg-slate-600' : 'bg-red-500 hover:bg-red-600'}`} onClick={toggleMic}>
+          <div className="h-20 shrink-0 mt-4 bg-slate-100 dark:bg-[#161b22] border border-slate-300 dark:border-white/10 rounded-2xl flex items-center justify-center gap-3 md:gap-5 px-4 shadow-xl">
+            <Button size="icon" className={`h-12 w-12 rounded-full ${micOn ? 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600' : 'bg-red-500 hover:bg-red-600 text-white'}`} onClick={toggleMic}>
               {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
             </Button>
 
-            <Button size="icon" className={`h-12 w-12 rounded-full ${camOn ? 'bg-slate-700 hover:bg-slate-600' : 'bg-red-500 hover:bg-red-600'}`} onClick={toggleCam}>
+            <Button size="icon" className={`h-12 w-12 rounded-full ${camOn ? 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600' : 'bg-red-500 hover:bg-red-600 text-white'}`} onClick={toggleCam}>
               {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
 
             {/* Screen Share: teacher does it directly, student sends request */}
             {isTeacher ? (
-              <Button size="icon" className={`h-12 w-12 rounded-full ${isScreenSharing ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`} onClick={screenShare} title="Share Screen">
+              <Button size="icon" className={`h-12 w-12 rounded-full ${isScreenSharing ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600'}`} onClick={screenShare} title="Share Screen">
                 <MonitorUp className="h-5 w-5" />
               </Button>
             ) : (
-              <Button size="icon" className="h-12 w-12 rounded-full bg-slate-700 hover:bg-amber-600" onClick={requestScreenShare} title="Request Screen Share">
+              <Button size="icon" className="h-12 w-12 rounded-full bg-slate-300 text-slate-900 hover:bg-amber-600 hover:text-white dark:bg-slate-700 dark:text-white" onClick={requestScreenShare} title="Request Screen Share">
                 <MonitorUp className="h-5 w-5" />
               </Button>
             )}
 
-            <div className="w-[1px] h-8 bg-white/10 mx-1" />
+            <div className="w-[1px] h-8 bg-slate-300 dark:bg-white/10 mx-1" />
 
-            <Button size="icon" className={`h-12 w-12 rounded-full ${showWhiteboard ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-700 hover:bg-slate-600'}`} onClick={() => setShowWhiteboard(s => !s)} title="Toggle Whiteboard">
+            <Button size="icon" className={`h-12 w-12 rounded-full ${showWhiteboard ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600'}`} onClick={() => setShowWhiteboard(s => !s)} title="Toggle Whiteboard">
               <Edit3 className="h-5 w-5" />
             </Button>
 
             {/* Student: Raise Hand */}
             {!isTeacher && (
-              <Button size="icon" className={`h-12 w-12 rounded-full ${myHandRaised ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-700 hover:bg-slate-600'}`} onClick={myHandRaised ? lowerHand : raiseHand} title={myHandRaised ? 'Lower Hand' : 'Raise Hand'}>
+              <Button size="icon" className={`h-12 w-12 rounded-full ${myHandRaised ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600'}`} onClick={myHandRaised ? lowerHand : raiseHand} title={myHandRaised ? 'Lower Hand' : 'Raise Hand'}>
                 <Hand className="h-5 w-5" />
               </Button>
             )}
@@ -667,39 +666,39 @@ export default function StudyRoom() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-full lg:w-80 h-full bg-[#161b22] border-l border-white/10 flex flex-col shrink-0">
-          <div className="flex border-b border-white/10 shrink-0">
-            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'chat' ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5' : 'text-gray-400 hover:bg-white/5'}`} onClick={() => setActiveTab('chat')}>
+        <div className="w-full lg:w-80 h-full bg-slate-100 dark:bg-[#161b22] border-l border-slate-300 dark:border-white/10 flex flex-col shrink-0">
+          <div className="flex border-b border-slate-300 dark:border-white/10 shrink-0">
+            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'chat' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400 bg-blue-500/10 dark:bg-blue-400/5' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('chat')}>
               <MessageSquare className="h-4 w-4" /> Chat
             </button>
-            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'people' ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5' : 'text-gray-400 hover:bg-white/5'}`} onClick={() => setActiveTab('people')}>
+            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'people' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400 bg-blue-500/10 dark:bg-blue-400/5' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('people')}>
               <Users className="h-4 w-4" /> People ({participants.filter(p => p.is_online).length})
             </button>
-            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'materials' ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5' : 'text-gray-400 hover:bg-white/5'}`} onClick={() => setActiveTab('materials')}>
+            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'materials' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400 bg-blue-500/10 dark:bg-blue-400/5' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('materials')}>
               <FileText className="h-4 w-4" /> Notes
             </button>
           </div>
 
           {/* Chat Tab */}
           {activeTab === 'chat' && (
-            <div className="flex-1 flex flex-col min-h-0 bg-[#0f111a]">
+            <div className="flex-1 flex flex-col min-h-0 bg-slate-100 dark:bg-[#0f111a]">
               <ScrollArea className="flex-1 p-4">
                 <div className="space-y-3">
                   {messages.map((msg, idx) => {
                     const isMe = msg.user_id === currentUser?.id;
                     return (
                       <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] rounded-2xl px-3 py-2 ${isMe ? 'bg-blue-600 rounded-br-sm' : 'bg-slate-800 rounded-bl-sm'}`}>
+                        <div className={`max-w-[80%] rounded-2xl px-3 py-2 ${isMe ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-sm'}`}>
                           {!isMe && <p className="text-xs font-semibold text-blue-300 mb-0.5">{msg.profiles?.username || 'User'}</p>}
-                          <p className="text-sm text-white break-words">{msg.message}</p>
-                          <p className="text-[10px] text-white/40 mt-0.5 text-right">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          <p className="text-sm text-inherit break-words">{msg.message}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-white/40 mt-0.5 text-right">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
                       </div>
                     );
                   })}
                   {[...typingUsers].length > 0 && (
                     <div className="flex justify-start">
-                      <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-gray-400 italic">
+                      <div className="bg-slate-200 dark:bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-slate-600 dark:text-gray-400 italic">
                         {[...typingUsers].join(', ')} typing...
                       </div>
                     </div>
@@ -707,13 +706,13 @@ export default function StudyRoom() {
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
-              <div className="p-3 border-t border-white/10 shrink-0">
+              <div className="p-3 border-t border-slate-300 dark:border-white/10 shrink-0">
                 <form className="flex gap-2" onSubmit={handleSendMessage}>
                   <Input
                     value={message}
                     onChange={handleTyping}
                     placeholder="Type a message..."
-                    className="flex-1 bg-slate-800 border-slate-700 rounded-full text-sm"
+                    className="flex-1 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 rounded-full text-sm"
                     autoComplete="off"
                   />
                   <Button type="submit" size="icon" className="h-10 w-10 rounded-full bg-blue-600 hover:bg-blue-700 shrink-0">
@@ -729,16 +728,16 @@ export default function StudyRoom() {
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {/* Teacher Controls Panel */}
               {isTeacher && (
-                <div className="p-3 border-b border-white/10 bg-amber-500/5 space-y-2 shrink-0">
+                <div className="p-3 border-b border-slate-300 dark:border-white/10 bg-amber-500/5 space-y-2 shrink-0">
                   <p className="text-xs text-amber-400 font-bold tracking-wider uppercase flex items-center gap-1"><Crown className="h-3 w-3" /> Teacher Controls</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" className="text-xs border-white/10 bg-white/5 hover:bg-white/10" onClick={() => startTimer(25, 'study')}>
+                    <Button size="sm" variant="outline" className="text-xs border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10" onClick={() => startTimer(25, 'study')}>
                       <Timer className="h-3 w-3 mr-1" /> 25m Focus
                     </Button>
-                    <Button size="sm" variant="outline" className="text-xs border-white/10 bg-white/5 hover:bg-white/10" onClick={() => startTimer(5, 'break')}>
+                    <Button size="sm" variant="outline" className="text-xs border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10" onClick={() => startTimer(5, 'break')}>
                       <Timer className="h-3 w-3 mr-1" /> 5m Break
                     </Button>
-                    <Button size="sm" variant="outline" className={`text-xs col-span-2 border-white/10 ${allowStudentDrawing ? 'bg-blue-600/20 text-blue-400 border-blue-400/30' : 'bg-white/5'}`} onClick={toggleWhiteboardPermission}>
+                    <Button size="sm" variant="outline" className={`text-xs col-span-2 border-slate-300 dark:border-white/10 ${allowStudentDrawing ? 'bg-blue-600/20 text-blue-600 dark:text-blue-400 border-blue-400/30' : 'bg-white dark:bg-white/5'}`} onClick={toggleWhiteboardPermission}>
                       {allowStudentDrawing ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
                       {allowStudentDrawing ? 'Disable Student Drawing' : 'Allow Student Drawing'}
                     </Button>
@@ -751,18 +750,18 @@ export default function StudyRoom() {
 
               {/* Student Panel (visible only to students) */}
               {!isTeacher && (
-                <div className="p-3 border-b border-white/10 bg-blue-500/5 space-y-2 shrink-0">
+                <div className="p-3 border-b border-slate-300 dark:border-white/10 bg-blue-500/5 space-y-2 shrink-0">
                   <p className="text-xs text-blue-400 font-bold tracking-wider uppercase flex items-center gap-1"><BookOpen className="h-3 w-3" /> Student Actions</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" className={`text-xs border-white/10 ${myHandRaised ? 'bg-amber-500/20 text-amber-300 border-amber-400/30' : 'bg-white/5'}`} onClick={myHandRaised ? lowerHand : raiseHand}>
+                    <Button size="sm" variant="outline" className={`text-xs border-slate-300 dark:border-white/10 ${myHandRaised ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-400/30' : 'bg-white dark:bg-white/5'}`} onClick={myHandRaised ? lowerHand : raiseHand}>
                       <Hand className="h-3 w-3 mr-1" />{myHandRaised ? 'Lower Hand' : 'Raise Hand'}
                     </Button>
-                    <Button size="sm" variant="outline" className="text-xs border-white/10 bg-white/5" onClick={requestScreenShare}>
+                    <Button size="sm" variant="outline" className="text-xs border-slate-300 dark:border-white/10 bg-white dark:bg-white/5" onClick={requestScreenShare}>
                       <MonitorUp className="h-3 w-3 mr-1" /> Share Screen
                     </Button>
                   </div>
                   {!allowStudentDrawing && (
-                    <p className="text-[10px] text-gray-500 mt-1">🔒 Whiteboard is read-only — teacher controls drawing</p>
+                    <p className="text-[10px] text-slate-500 dark:text-gray-500 mt-1">🔒 Whiteboard is read-only — teacher controls drawing</p>
                   )}
                 </div>
               )}
@@ -773,7 +772,7 @@ export default function StudyRoom() {
                     const isMe = p.user_id === currentUser?.id;
                     const isParticipantTeacher = p.role === 'teacher';
                     return (
-                      <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 hover:bg-white/8 transition-colors group">
+                      <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors group">
                         <div className="relative">
                           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold shrink-0">
                             {p.profiles?.username?.[0]?.toUpperCase() || '?'}
@@ -786,7 +785,7 @@ export default function StudyRoom() {
                             {isParticipantTeacher && <Crown className="h-3 w-3 text-amber-400 shrink-0" />}
                             {p.hand_raised && !isParticipantTeacher && <Hand className="h-3 w-3 text-amber-400 shrink-0 animate-bounce" />}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-gray-400 mt-0.5">
                             <Badge variant="outline" className={`text-[9px] px-1 py-0 h-4 border-0 ${isParticipantTeacher ? 'bg-amber-400/15 text-amber-400' : 'bg-blue-400/15 text-blue-400'}`}>
                               {isParticipantTeacher ? 'Teacher' : 'Student'}
                             </Badge>
@@ -801,12 +800,12 @@ export default function StudyRoom() {
                                 <MoreVertical className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700 text-white">
-                              <DropdownMenuItem onClick={() => teacherMuteUser(p.user_id)} className="hover:bg-slate-700 cursor-pointer">
+                            <DropdownMenuContent align="end" className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white">
+                              <DropdownMenuItem onClick={() => teacherMuteUser(p.user_id)} className="hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer">
                                 <MicOff className="h-4 w-4 mr-2" /> Mute
                               </DropdownMenuItem>
                               {p.hand_raised && (
-                                <DropdownMenuItem onClick={async () => { await supabase.from('room_participants').update({ hand_raised: false }).eq('room_id', roomId).eq('user_id', p.user_id); }} className="hover:bg-slate-700 cursor-pointer">
+                                <DropdownMenuItem onClick={async () => { await supabase.from('room_participants').update({ hand_raised: false }).eq('room_id', roomId).eq('user_id', p.user_id); }} className="hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer">
                                   <Hand className="h-4 w-4 mr-2" /> Lower Hand
                                 </DropdownMenuItem>
                               )}
@@ -826,9 +825,9 @@ export default function StudyRoom() {
 
           {/* Materials Tab */}
           {activeTab === 'materials' && (
-            <div className="flex-1 flex flex-col min-h-0 bg-[#0f111a]">
+            <div className="flex-1 flex flex-col min-h-0 bg-slate-100 dark:bg-[#0f111a]">
               {isTeacher && (
-                <div className="p-3 border-b border-white/10 shrink-0">
+                <div className="p-3 border-b border-slate-300 dark:border-white/10 shrink-0">
                   <input type="file" ref={fileInputRef} onChange={handleUploadMaterial} className="hidden" />
                   <Button className="w-full bg-blue-600 hover:bg-blue-700 gap-2" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                     <Upload className="h-4 w-4" />
@@ -839,18 +838,18 @@ export default function StudyRoom() {
               <ScrollArea className="flex-1">
                 <div className="p-3 space-y-2">
                   {materials.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500 text-sm">
+                    <div className="text-center py-8 text-slate-500 dark:text-gray-500 text-sm">
                       <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
                       No materials yet{isTeacher ? ' — upload notes above.' : '.'}
                     </div>
                   ) : (
                     materials.map(m => (
-                      <div key={m.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/8 transition-colors">
+                      <div key={m.id} className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-xl border border-slate-300 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
                         <div className="flex items-center gap-2.5 min-w-0">
                           <FileText className="h-5 w-5 text-blue-400 shrink-0" />
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">{m.title}</p>
-                            <p className="text-[10px] text-gray-500">{new Date(m.created_at).toLocaleDateString()}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-gray-500">{new Date(m.created_at).toLocaleDateString()}</p>
                           </div>
                         </div>
                         <a href={m.file_url} target="_blank" rel="noopener noreferrer" download>

@@ -256,7 +256,7 @@ const CourseCard = ({
               <div className="h-7 w-7 rounded-full bg-gradient-to-br from-cyan-400/40 to-indigo-500/40 border border-white/20 flex items-center justify-center text-[11px] font-bold text-white">
                 {creatorInitial}
               </div>
-              <span className="text-xs text-gray-300">{creator}</span>
+              <span className="text-xs text-slate-700 dark:text-gray-300">{creator}</span>
             </div>
             <button
               type="button"
@@ -558,7 +558,7 @@ export default function AiCourseCreator() {
                   </div>
                   <CardTitle className="text-xl">AI Course Copilot</CardTitle>
                 </div>
-                <CardDescription className="text-gray-400">Describe your goal and generate a personalized learning path in seconds.</CardDescription>
+                <CardDescription className="text-slate-600 dark:text-gray-400">Describe your goal and generate a personalized learning path in seconds.</CardDescription>
               </CardHeader>
 
               <CardContent>
@@ -588,7 +588,7 @@ export default function AiCourseCreator() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Difficulty</p>
+                    <p className="text-xs uppercase tracking-wide text-slate-600 dark:text-gray-400">Difficulty</p>
                     <div className="flex flex-wrap gap-2">
                       {DIFFICULTIES.map((item) => (
                         <button
@@ -609,7 +609,7 @@ export default function AiCourseCreator() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Duration</p>
+                    <p className="text-xs uppercase tracking-wide text-slate-600 dark:text-gray-400">Duration</p>
                     <div className="flex flex-wrap gap-2">
                       {DURATIONS.map((item) => (
                         <button
@@ -630,7 +630,7 @@ export default function AiCourseCreator() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Language</p>
+                    <p className="text-xs uppercase tracking-wide text-slate-600 dark:text-gray-400">Language</p>
                     <Select value={language} onValueChange={setLanguage} disabled={isGenerating}>
                       <SelectTrigger className="h-11 rounded-2xl bg-black/35 border-white/10 text-white focus:ring-0 focus:ring-offset-0 focus:border-cyan-400/50">
                         <SelectValue placeholder="Language" />
@@ -790,7 +790,7 @@ export default function AiCourseCreator() {
                 <Card className="rounded-2xl bg-white/5 border-white/10">
                   <CardContent className="p-10 text-center">
                     <Sparkles className="h-10 w-10 text-gray-500 mx-auto mb-3" />
-                    <p className="text-gray-300">{currentFeed.emptyTitle}</p>
+                    <p className="text-slate-900 dark:text-gray-300">{currentFeed.emptyTitle}</p>
                     <p className="text-sm text-gray-500 mt-1">{currentFeed.emptyDesc}</p>
                   </CardContent>
                 </Card>

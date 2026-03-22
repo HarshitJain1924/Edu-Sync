@@ -1,18 +1,19 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, ArrowLeft, LogOut, Calendar, Clock, Crown } from "lucide-react";
+import { Plus, Users, Calendar, Clock, Crown, Columns3, Zap, CheckCircle2 } from "lucide-react";
 import { roomSchema } from "@/lib/validations";
-import { Badge } from "@/components/ui/badge";
-import { z } from 'zod';
+import { z } from "zod";
+import { cn } from "@/lib/utils";
+import AppSidebar from "@/components/AppSidebar";
 
+// ─── Types ─────────────────────────────────────────────────────
 interface StudyRoom {
   id: string;
   name: string;
@@ -22,9 +23,7 @@ interface StudyRoom {
   max_participants: number;
   created_at: string;
   room_code: string;
-  profiles: {
-    username: string;
-  };
+  profiles: { username: string };
 }
 
 interface StudySession {
@@ -39,44 +38,31 @@ interface StudySession {
   study_rooms: { name: string };
 }
 
+type ViewMode = "rooms" | "kanban";
+
+// ─── Helpers ───────────────────────────────────────────────────
 const ensureProfileExists = async (user: any) => {
   if (!user?.id) return;
-
   try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (error && !["PGRST116", "406"].includes((error as any).code)) {
-      // PGRST116 / 406 are "No rows" style conditions; ignore those
-      console.warn("Failed to check profile existence", error);
-    }
-
+    const { data, error } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle();
+    if (error && !["PGRST116", "406"].includes((error as any).code)) console.warn("Profile check failed", error);
     if (!data) {
-      const username =
-        user.user_metadata?.username ||
-        (typeof user.email === "string" ? user.email.split("@")[0] : "Student");
-
-      const { error: insertError } = await supabase.from("profiles").insert({
-        id: user.id,
-        username,
-      });
-
-      if (insertError && (insertError as any).code !== "23505") {
-        // Ignore duplicate key, but surface other errors
-        console.error("Failed to create profile row", insertError);
-      }
+      const username = user.user_metadata?.username || (typeof user.email === "string" ? user.email.split("@")[0] : "Student");
+      const { error: insertError } = await supabase.from("profiles").insert({ id: user.id, username });
+      if (insertError && (insertError as any).code !== "23505") console.error("Profile creation failed", insertError);
     }
-  } catch (e) {
-    console.error("ensureProfileExists unexpected error", e);
-  }
+  } catch (e) { console.error("ensureProfileExists error", e); }
 };
 
+// ─── Component ─────────────────────────────────────────────────
 const StudyRooms = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // View
+  const [viewMode, setViewMode] = useState<ViewMode>("rooms");
+
+  // Data
   const [rooms, setRooms] = useState<StudyRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -91,148 +77,77 @@ const StudyRooms = () => {
   const [sessionRoom, setSessionRoom] = useState("");
   const [sessionTime, setSessionTime] = useState("");
   const [globalRole, setGlobalRole] = useState<string>("student");
+  const [isDarkMode, setIsDarkMode] = useState(
+    typeof document !== "undefined" && document.documentElement.classList.contains("dark")
+  );
+
+  useEffect(() => {
+    const syncTheme = () => {
+      setIsDarkMode(document.documentElement.classList.contains("dark"));
+    };
+
+    syncTheme();
+    window.addEventListener("storage", syncTheme);
+    window.addEventListener("edusync:theme-changed", syncTheme as EventListener);
+
+    return () => {
+      window.removeEventListener("storage", syncTheme);
+      window.removeEventListener("edusync:theme-changed", syncTheme as EventListener);
+    };
+  }, []);
 
   const canScheduleSessions = globalRole === "teacher" || globalRole === "admin";
 
-  useEffect(() => {
-    checkUser();
-    fetchRooms();
-    fetchSessions();
-  }, []);
+  useEffect(() => { checkUser(); fetchRooms(); fetchSessions(); }, []);
 
+  // ─── Data Fetching ─────────────────────────────────────────
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      navigate("/auth");
-    } else {
-      setCurrentUser(user);
-      await ensureProfileExists(user);
-      // Fetch global role from user_roles table
-      const { data: roleData, error: roleError } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      
-      if (roleData?.role) {
-        setGlobalRole(roleData.role);
-      } else if (roleError) {
-        console.error("Error fetching user role:", roleError);
-      }
+    if (!user) { navigate("/auth"); } else {
+      setCurrentUser(user); await ensureProfileExists(user);
+      const { data: roleData } = await supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+      if (roleData?.role) setGlobalRole(roleData.role);
     }
   };
 
   const fetchRooms = async () => {
     try {
-      const { data, error } = await supabase
-        .from("study_rooms")
-        .select(`*, profiles:created_by (username)`)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("study_rooms").select(`*, profiles:created_by (username)`).eq("is_active", true).order("created_at", { ascending: false });
       if (error) throw error;
       setRooms(data || []);
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+    } catch (error: any) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
+    finally { setLoading(false); }
   };
 
   const fetchSessions = async () => {
     try {
-      const { data } = await supabase
-        .from("study_sessions")
-        .select("id, title, start_time, status, teacher_id, room_id")
-        .gte("start_time", new Date().toISOString())
-        .order("start_time", { ascending: true })
-        .limit(5);
-
+      const { data } = await supabase.from("study_sessions").select("id, title, description, start_time, status, teacher_id, room_id").order("start_time", { ascending: false }).limit(30);
       const teacherIds = Array.from(new Set((data || []).map((s: any) => s.teacher_id).filter(Boolean)));
       const roomIds = Array.from(new Set((data || []).map((s: any) => s.room_id).filter(Boolean)));
-
       let teacherNameMap = new Map<string, string>();
-      if (teacherIds.length > 0) {
-        const { data: teachers } = await supabase
-          .from("profiles")
-          .select("id, username")
-          .in("id", teacherIds);
-        teacherNameMap = new Map((teachers || []).map((t: any) => [t.id, t.username || "Teacher"]));
-      }
-
+      if (teacherIds.length > 0) { const { data: teachers } = await supabase.from("profiles").select("id, username").in("id", teacherIds); teacherNameMap = new Map((teachers || []).map((t: any) => [t.id, t.username || "Teacher"])); }
       let roomNameMap = new Map<string, string>();
-      if (roomIds.length > 0) {
-        const { data: roomRows } = await supabase
-          .from("study_rooms")
-          .select("id, name")
-          .in("id", roomIds);
-        roomNameMap = new Map((roomRows || []).map((r: any) => [r.id, r.name || "Study Room"]));
-      }
-
-      const normalized = (data || []).map((session: any) => ({
-        ...session,
-        profiles: { username: teacherNameMap.get(session.teacher_id) || "Teacher" },
-        study_rooms: { name: roomNameMap.get(session.room_id) || "Study Room" },
-      }));
-
-      setSessions(normalized);
-    } catch (e) {
-      console.warn("Sessions join fetch failed:", e);
-    }
+      if (roomIds.length > 0) { const { data: roomRows } = await supabase.from("study_rooms").select("id, name").in("id", roomIds); roomNameMap = new Map((roomRows || []).map((r: any) => [r.id, r.name || "Study Room"])); }
+      setSessions((data || []).map((session: any) => ({ ...session, profiles: { username: teacherNameMap.get(session.teacher_id) || "Teacher" }, study_rooms: { name: roomNameMap.get(session.room_id) || "Study Room" } })));
+    } catch (e) { console.warn("Sessions fetch failed:", e); }
   };
 
+  // ─── Actions ───────────────────────────────────────────────
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-
     try {
-      const validated = roomSchema.parse({
-        name: newRoomName,
-        description: newRoomDescription,
-      });
-
+      const validated = roomSchema.parse({ name: newRoomName, description: newRoomDescription });
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
-
       await ensureProfileExists(user);
-
-      // Step 1: Create room and get its ID back
-      const { data: room, error: roomError } = await supabase
-        .from("study_rooms")
-        .insert({
-          name: validated.name,
-          description: validated.description,
-          created_by: user.id,
-          host_id: user.id,
-          room_code: Math.random().toString(36).substring(2, 8).toUpperCase()
-        })
-        .select()
-        .single();
-
+      const { data: room, error: roomError } = await supabase.from("study_rooms").insert({ name: validated.name, description: validated.description, created_by: user.id, host_id: user.id, room_code: Math.random().toString(36).substring(2, 8).toUpperCase() }).select().single();
       if (roomError) throw roomError;
-
-      // Step 2: Insert creator as a participant with role = teacher
-      await supabase.from("room_participants").insert({
-        room_id: room.id,
-        user_id: user.id,
-        role: 'teacher',
-        joined_at: new Date().toISOString()
-      });
-
+      await supabase.from("room_participants").insert({ room_id: room.id, user_id: user.id, role: "teacher", joined_at: new Date().toISOString() });
       toast({ title: "Room created!", description: `Room code: ${room.room_code}` });
-      setCreateDialogOpen(false);
-      setNewRoomName("");
-      setNewRoomDescription("");
-      fetchRooms();
+      setCreateDialogOpen(false); setNewRoomName(""); setNewRoomDescription(""); fetchRooms();
     } catch (error: any) {
-      console.error("Room creation error:", error);
-      if (error instanceof z.ZodError) {
-        toast({ title: "Validation Error", description: error.errors[0].message, variant: "destructive" });
-      } else {
-        toast({ 
-          title: "Error", 
-          description: error.message || "Failed to create room.", 
-          variant: "destructive" 
-        });
-      }
+      if (error instanceof z.ZodError) toast({ title: "Validation Error", description: error.errors[0].message, variant: "destructive" });
+      else toast({ title: "Error", description: error.message || "Failed to create room.", variant: "destructive" });
     }
   };
 
@@ -240,27 +155,11 @@ const StudyRooms = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
-
       await ensureProfileExists(user);
-
-      // Add user as participant
-      const { error } = await supabase
-        .from("room_participants")
-        .insert({
-          room_id: roomId,
-          user_id: user.id,
-        });
-
-      if (error && error.code !== "23505") throw error; // Ignore duplicate key error
-
+      const { error } = await supabase.from("room_participants").insert({ room_id: roomId, user_id: user.id });
+      if (error && error.code !== "23505") throw error;
       navigate(`/study-room/${roomId}`);
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
+    } catch (error: any) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
   };
 
   const handleJoinByCode = async (e: React.FormEvent) => {
@@ -275,259 +174,405 @@ const StudyRooms = () => {
 
   const handleScheduleSession = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canScheduleSessions) {
-      toast({
-        title: "Not allowed",
-        description: "Only teachers and admins can schedule sessions.",
-        variant: "destructive",
-      });
-      return;
-    }
-
+    if (!canScheduleSessions) { toast({ title: "Not allowed", description: "Only teachers and admins can schedule sessions.", variant: "destructive" }); return; }
     if (!sessionTitle || !sessionTime || !sessionRoom || !currentUser) return;
     try {
-      const { error } = await supabase.from('study_sessions').insert({
-        title: sessionTitle,
-        description: sessionDesc,
-        room_id: sessionRoom,
-        teacher_id: currentUser.id,
-        start_time: new Date(sessionTime).toISOString(),
-        status: 'scheduled'
-      });
+      const { error } = await supabase.from("study_sessions").insert({ title: sessionTitle, description: sessionDesc, room_id: sessionRoom, teacher_id: currentUser.id, start_time: new Date(sessionTime).toISOString(), status: "scheduled" });
       if (error) throw error;
       toast({ title: "Session scheduled!" });
-      setScheduleDialogOpen(false);
-      setSessionTitle(""); setSessionDesc(""); setSessionRoom(""); setSessionTime("");
-      fetchSessions();
-    } catch (err: any) {
-      toast({ title: "Failed to schedule", description: err.message, variant: "destructive" });
-    }
+      setScheduleDialogOpen(false); setSessionTitle(""); setSessionDesc(""); setSessionRoom(""); setSessionTime(""); fetchSessions();
+    } catch (err: any) { toast({ title: "Failed to schedule", description: err.message, variant: "destructive" }); }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/");
-  };
-
-  const sessionsToday = sessions.filter((session) => {
-    const date = new Date(session.start_time);
-    if (Number.isNaN(date.getTime())) return false;
+  // ─── Derived Data ──────────────────────────────────────────
+  const sessionsToday = sessions.filter((s) => {
+    const d = new Date(s.start_time);
+    if (Number.isNaN(d.getTime())) return false;
     const now = new Date();
-    return (
-      date.getDate() === now.getDate() &&
-      date.getMonth() === now.getMonth() &&
-      date.getFullYear() === now.getFullYear()
-    );
+    return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
 
+  const kanbanColumns = [
+    { key: "scheduled", label: "Scheduled", accent: "#9c48ea", accentBg: "rgba(156,72,234,0.08)", accentBorder: "rgba(156,72,234,0.25)", items: sessions.filter((s) => s.status === "scheduled") },
+    { key: "live", label: "Live Now", accent: "#10b981", accentBg: "rgba(16,185,129,0.08)", accentBorder: "rgba(16,185,129,0.25)", items: sessions.filter((s) => s.status === "live" || s.status === "in_progress" || s.status === "active") },
+    { key: "completed", label: "Completed", accent: "#71717a", accentBg: "rgba(113,113,122,0.06)", accentBorder: "rgba(113,113,122,0.15)", items: sessions.filter((s) => s.status === "completed" || s.status === "ended") },
+    { key: "cancelled", label: "Cancelled", accent: "#ff6f7e", accentBg: "rgba(255,111,126,0.06)", accentBorder: "rgba(255,111,126,0.15)", items: sessions.filter((s) => s.status === "cancelled") },
+  ];
+
+  // ─── Tokens → Tailwind ─────────────────────────────────────
+  const SURFACE = isDarkMode ? "#0f0f0f" : "#e2e8f0";
+  const CONTAINER = isDarkMode ? "#1a1919" : "#ffffff";
+  const CONTAINER_HIGH = isDarkMode ? "#201f1f" : "#f1f5f9";
+  const CONTAINER_HIGHEST = isDarkMode ? "#262625" : "#e2e8f0";
+  const GHOST_BORDER = isDarkMode ? "rgba(73,72,71,0.15)" : "rgba(148,163,184,0.35)";
+
+  const glassCard = "rounded-[2rem] backdrop-blur-xl";
+  const ghostBorder = { border: `1px solid ${GHOST_BORDER}` };
+  const cardBg = isDarkMode ? `${CONTAINER}80` : "rgba(255,255,255,0.92)";
+  const inputClass = "bg-slate-100 dark:bg-[#262625] border border-slate-300 dark:border-0 text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-[#71717a] rounded-xl focus-visible:ring-[#699cff]/30 focus-visible:ring-offset-0";
+  const dialogStyle = { backgroundColor: CONTAINER_HIGH, border: `1px solid ${GHOST_BORDER}` };
+
+  const statCards = [
+    { label: "Active Rooms", value: rooms.length, accent: "#06b6d4" },
+    { label: "Upcoming", value: sessions.filter((s) => s.status === "scheduled").length, accent: "#9c48ea" },
+    { label: "Today", value: sessionsToday, accent: "#f59e0b" },
+  ];
+
+  // ─── Loading ───────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex h-screen text-slate-900 dark:text-white" style={{ background: SURFACE }}>
+        <AppSidebar />
+        <main className="ml-64 flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Users className="h-10 w-10 text-[#cc97ff] animate-pulse" />
+            <p className="text-slate-600 dark:text-[#71717a] text-sm font-medium" style={{ fontFamily: "Inter, sans-serif" }}>Loading study rooms…</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ─── Render ────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#05070f] to-[#0a0e1a] p-6 text-white">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8 rounded-2xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10" onClick={() => navigate("/dashboard")}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight">Study Rooms</h1>
-                <p className="text-sm text-gray-400">Join, host, and schedule collaborative classes.</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 lg:w-[360px]">
-              <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 p-3 text-center">
-                <p className="text-xs uppercase tracking-wide text-cyan-200/80">Active Rooms</p>
-                <p className="mt-1 text-2xl font-bold">{rooms.length}</p>
-              </div>
-              <div className="rounded-xl border border-violet-400/20 bg-violet-500/10 p-3 text-center">
-                <p className="text-xs uppercase tracking-wide text-violet-200/80">Upcoming</p>
-                <p className="mt-1 text-2xl font-bold">{sessions.length}</p>
-              </div>
-              <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 p-3 text-center">
-                <p className="text-xs uppercase tracking-wide text-amber-200/80">Today</p>
-                <p className="mt-1 text-2xl font-bold">{sessionsToday}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 xl:flex-row xl:items-center">
-            <form onSubmit={handleJoinByCode} className="flex w-full max-w-md gap-2">
-              <Input
-                placeholder="Enter room code..."
-                value={joinCode}
-                onChange={e => setJoinCode(e.target.value)}
-                className="h-10 border-white/15 bg-white/5 font-mono uppercase text-white placeholder:text-gray-500"
-                maxLength={6}
-              />
-              <Button type="submit" variant="secondary" className="h-10 bg-white/10 text-white hover:bg-white/20" disabled={joinCode.length < 3}>
-                Join
-              </Button>
-            </form>
-
-            <div className="hidden h-6 w-px bg-white/15 xl:block" />
-
-            <div className="flex flex-wrap items-center gap-3">
-              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="bg-gradient-to-r from-primary to-violet-600 hover:from-primary/90 hover:to-violet-500">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Room
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Study Room</DialogTitle>
-                    <DialogDescription>Set up a new virtual study space</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateRoom} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="room-name">Room Name</Label>
-                      <Input id="room-name" value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} placeholder="Math Study Session" required />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="room-description">Description</Label>
-                      <Textarea id="room-description" value={newRoomDescription} onChange={(e) => setNewRoomDescription(e.target.value)} placeholder="Let's work on chapter 5 problems together" />
-                    </div>
-                    <Button type="submit" className="w-full">Create Room</Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-
-              {canScheduleSessions && (
-                <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10">
-                      <Calendar className="h-4 w-4" /> Schedule Session
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Schedule a Class Session</DialogTitle>
-                      <DialogDescription>Students will see this in their upcoming sessions.</DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleScheduleSession} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Session Title</Label>
-                        <Input value={sessionTitle} onChange={e => setSessionTitle(e.target.value)} placeholder="DSA Revision Class" required />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Room</Label>
-                        <select value={sessionRoom} onChange={e => setSessionRoom(e.target.value)} className="w-full border border-border rounded-md p-2 bg-background text-foreground" required>
-                          <option value="">Select Room...</option>
-                          {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Date & Time</Label>
-                        <Input type="datetime-local" value={sessionTime} onChange={e => setSessionTime(e.target.value)} required />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Description (optional)</Label>
-                        <Textarea value={sessionDesc} onChange={e => setSessionDesc(e.target.value)} placeholder="Topics we'll cover today..." />
-                      </div>
-                      <Button type="submit" className="w-full">Schedule Session</Button>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              )}
-
-              <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" />Logout
-              </Button>
-            </div>
-          </div>
+    <div className="flex h-screen text-slate-900 dark:text-white" style={{ background: SURFACE }}>
+      <AppSidebar />
+      <main className="ml-64 flex-1 overflow-y-auto relative isolate text-slate-900 dark:text-white" style={{ fontFamily: "Inter, sans-serif" }}>
+        <div
+          className="fixed inset-0 pointer-events-none z-[1]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 2px 2px, rgba(255,255,255,0.03) 1px, transparent 0)",
+            backgroundSize: "40px 40px",
+          }}
+        />
+        {/* Ambient Depth Layers */}
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden ml-64">
+          <div className="absolute -top-[15%] -right-[10%] h-[55%] w-[55%] bg-violet-500/[0.08] blur-[140px]" />
+          <div className="absolute -bottom-[10%] -left-[10%] h-[55%] w-[55%] bg-blue-500/[0.06] blur-[140px]" />
+          <div className="absolute top-[35%] left-[20%] h-[35%] w-[35%] bg-violet-500/5 blur-[130px]" />
         </div>
 
-        {loading ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, idx) => (
-              <div key={idx} className="h-52 rounded-2xl border border-white/10 bg-white/[0.03] animate-pulse" />
-            ))}
-          </div>
-        ) : rooms.length === 0 ? (
-          <Card className="border-white/10 bg-white/[0.03] text-white">
-            <CardContent className="py-14 text-center">
-              <p className="text-gray-300 mb-5">No study rooms yet. Create one to get started.</p>
-              <Button onClick={() => setCreateDialogOpen(true)} className="bg-gradient-to-r from-primary to-violet-600 hover:from-primary/90 hover:to-violet-500">
-                <Plus className="h-4 w-4 mr-2" />
-                Create First Room
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {rooms.map((room) => (
-              <Card key={room.id} className="group border-white/10 bg-white/[0.03] text-white transition-all duration-300 hover:-translate-y-1 hover:border-cyan-400/40 hover:shadow-[0_20px_50px_rgba(6,182,212,0.08)]">
-                <CardHeader className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="text-lg leading-tight">{room.name}</CardTitle>
-                    <Badge variant="outline" className="border-cyan-400/30 text-cyan-300">Active</Badge>
-                  </div>
-                  <CardDescription className="line-clamp-2 text-gray-400 min-h-10">
-                    {room.description || "No description"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-4 flex items-center justify-between text-sm text-gray-400">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-cyan-300" />
-                      <span>{room.profiles?.username || "Unknown"}</span>
-                    </div>
-                    <span className="text-xs">{new Date(room.created_at).toLocaleDateString()}</span>
-                  </div>
+        <div className="relative z-10 min-h-screen" style={{ padding: "2.75rem" }}>
+          {/* ── Header ── */}
+          <header className="mb-10 flex flex-col xl:flex-row xl:items-start justify-between" style={{ gap: "2.75rem" }}>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-[#adaaaa] mb-3" style={{ fontFamily: "Inter, sans-serif" }}>Collaborative Learning</p>
+              <h1 className="text-[3rem] font-extrabold text-slate-900 dark:text-white tracking-[-0.04em] leading-[1.1] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
+                Study Rooms
+              </h1>
+              <p className="text-slate-600 dark:text-[#adaaaa] text-base max-w-lg leading-relaxed">
+                Join, host, and schedule collaborative classes in high-fidelity virtual environments.
+              </p>
+            </div>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="rounded-md border border-white/10 bg-black/20 px-2.5 py-1.5">
-                      <span className="text-[11px] font-mono uppercase text-gray-400">Code </span>
-                      <span className="text-sm font-bold tracking-widest text-cyan-200">{room.room_code || '---'}</span>
-                    </div>
-                    <Button className="bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400" onClick={() => handleJoinRoom(room.id)}>
-                      Join
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* Upcoming Sessions */}
-        {sessions.length > 0 && (
-          <div className="mt-10">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-cyan-300" />
-              Upcoming Sessions
-            </h2>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sessions.map(session => (
-                <Card key={session.id} className="border border-white/10 bg-white/[0.03] text-white">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
-                      <CardTitle className="text-base">{session.title}</CardTitle>
-                      <Badge variant="outline" className="text-[10px] border-cyan-400/30 text-cyan-300">{session.status}</Badge>
-                    </div>
-                    <CardDescription className="text-xs text-gray-400 line-clamp-2">{session.description || 'No description'}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
-                      <Crown className="h-3 w-3 text-amber-400" />
-                      <span className="text-xs">{session.profiles?.username || 'Teacher'}</span>
-                      <span className="text-xs text-gray-500">• {session.study_rooms?.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-cyan-300 mb-3">
-                      <Clock className="h-3 w-3" />
-                      {new Date(session.start_time).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                    {session.room_id && (
-                      <Button size="sm" className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400" onClick={() => handleJoinRoom(session.room_id)}>Join Room</Button>
-                    )}
-                  </CardContent>
-                </Card>
+            {/* Stat Tiles */}
+            <div className="flex gap-4 shrink-0">
+              {statCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className={cn(glassCard, "p-5 min-w-[120px] text-center transition-all duration-300 hover:-translate-y-0.5")}
+                  style={{ background: cardBg, ...ghostBorder }}
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] mb-2" style={{ color: stat.accent, fontFamily: "Inter, sans-serif" }}>{stat.label}</p>
+                  <p className="text-3xl font-extrabold text-slate-900 dark:text-white" style={{ fontFamily: "Manrope, sans-serif" }}>{String(stat.value).padStart(2, "0")}</p>
+                </div>
               ))}
             </div>
+          </header>
+
+          {/* ── Floating Dock Switcher ── */}
+          <div className="flex justify-center mb-10">
+            <div
+              className="inline-flex p-1.5 rounded-full backdrop-blur-xl"
+              style={{
+                background: isDarkMode ? "rgba(44,44,44,0.40)" : "rgba(255,255,255,0.95)",
+                border: `1px solid ${GHOST_BORDER}`,
+                boxShadow: isDarkMode ? "0 8px 30px -5px rgba(0,0,0,0.5)" : "0 8px 24px -8px rgba(15,23,42,0.25)",
+              }}
+            >
+              <button
+                onClick={() => setViewMode("rooms")}
+                className={cn(
+                  "flex items-center gap-2.5 px-7 py-3 rounded-full text-sm font-bold transition-all duration-300",
+                  viewMode === "rooms"
+                    ? "text-slate-900 dark:text-white"
+                    : "text-slate-500 dark:text-[#71717a] hover:text-slate-700 dark:hover:text-[#adaaaa] border border-transparent"
+                )}
+                style={
+                  viewMode === "rooms"
+                    ? {
+                        background: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)",
+                        border: isDarkMode ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(148,163,184,0.5)",
+                        boxShadow: isDarkMode ? "0 0 20px rgba(156,72,234,0.15)" : "0 0 16px rgba(124,58,237,0.16)",
+                      }
+                    : {}
+                }
+              >
+                <Users className="h-4 w-4" />
+                Rooms
+              </button>
+              <button
+                onClick={() => setViewMode("kanban")}
+                className={cn(
+                  "flex items-center gap-2.5 px-7 py-3 rounded-full text-sm font-bold transition-all duration-300",
+                  viewMode === "kanban"
+                    ? "text-slate-900 dark:text-white"
+                    : "text-slate-500 dark:text-[#71717a] hover:text-slate-700 dark:hover:text-[#adaaaa] border border-transparent"
+                )}
+                style={
+                  viewMode === "kanban"
+                    ? {
+                        background: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)",
+                        border: isDarkMode ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(148,163,184,0.5)",
+                        boxShadow: isDarkMode ? "0 0 20px rgba(156,72,234,0.15)" : "0 0 16px rgba(124,58,237,0.16)",
+                      }
+                    : {}
+                }
+              >
+                <Columns3 className="h-4 w-4" />
+                Kanban
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* ═══════════ ROOMS VIEW ═══════════ */}
+          {viewMode === "rooms" && (
+            <div className="animate-in fade-in duration-300">
+              {/* Action Bar */}
+              <div className={cn(glassCard, "p-6 mb-10")} style={{ background: cardBg, ...ghostBorder }}>
+                <div className="flex flex-col xl:flex-row xl:items-center" style={{ gap: "1.4rem" }}>
+                  <form onSubmit={handleJoinByCode} className="flex gap-3 flex-1 max-w-md">
+                    <Input placeholder="ROOM CODE" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} className={cn(inputClass, "h-12 font-mono uppercase tracking-[0.25em]")} maxLength={6} />
+                    <Button type="submit" className="h-12 rounded-xl px-6 font-bold text-slate-900 dark:text-white" style={{ background: CONTAINER_HIGHEST, border: `1px solid ${GHOST_BORDER}` }} disabled={joinCode.length < 3}>
+                      Join
+                    </Button>
+                  </form>
+
+                  <div className="hidden h-8 w-px xl:block" style={{ background: GHOST_BORDER }} />
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button className="h-12 rounded-xl px-6 font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #cc97ff)", boxShadow: "0 8px 25px -5px rgba(156,72,234,0.35)" }}>
+                          <Plus className="h-4 w-4 mr-2" /> Create Room
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="rounded-[2rem] text-slate-900 dark:text-white" style={dialogStyle}>
+                        <DialogHeader>
+                          <DialogTitle className="text-slate-900 dark:text-white" style={{ fontFamily: "Manrope, sans-serif" }}>Create Study Room</DialogTitle>
+                          <DialogDescription className="text-slate-600 dark:text-[#adaaaa]">Set up a new collaborative workspace</DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleCreateRoom} className="space-y-4">
+                          <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Room Name</Label><Input value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} placeholder="Math Study Session" required className={inputClass} /></div>
+                          <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Description</Label><Textarea value={newRoomDescription} onChange={(e) => setNewRoomDescription(e.target.value)} placeholder="Let's work together..." className={cn(inputClass, "resize-none")} /></div>
+                          <Button type="submit" className="w-full h-12 rounded-xl font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #cc97ff)" }}>Create Room</Button>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+
+                    {canScheduleSessions && (
+                      <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button className="h-12 rounded-xl px-5 font-bold text-[#adaaaa] hover:text-white gap-2 border-0 transition-colors" style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${GHOST_BORDER}` }}>
+                            <Calendar className="h-4 w-4" /> Schedule Session
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="rounded-[2rem] text-slate-900 dark:text-white" style={dialogStyle}>
+                          <DialogHeader>
+                            <DialogTitle className="text-slate-900 dark:text-white" style={{ fontFamily: "Manrope, sans-serif" }}>Schedule a Class Session</DialogTitle>
+                            <DialogDescription className="text-slate-600 dark:text-[#adaaaa]">Students will see this in upcoming sessions.</DialogDescription>
+                          </DialogHeader>
+                          <form onSubmit={handleScheduleSession} className="space-y-4">
+                            <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Session Title</Label><Input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="DSA Revision Class" required className={inputClass} /></div>
+                            <div className="space-y-2">
+                              <Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Room</Label>
+                              <select value={sessionRoom} onChange={(e) => setSessionRoom(e.target.value)} className="w-full h-10 rounded-xl p-2 text-slate-900 dark:text-white" style={{ background: CONTAINER_HIGHEST, border: `1px solid ${GHOST_BORDER}` }} required>
+                                <option value="">Select Room...</option>
+                                {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                              </select>
+                            </div>
+                            <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Date & Time</Label><Input type="datetime-local" value={sessionTime} onChange={(e) => setSessionTime(e.target.value)} required className={inputClass} /></div>
+                            <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Description (optional)</Label><Textarea value={sessionDesc} onChange={(e) => setSessionDesc(e.target.value)} placeholder="Topics we'll cover..." className={cn(inputClass, "resize-none")} /></div>
+                            <Button type="submit" className="w-full h-12 rounded-xl font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #cc97ff)" }}>Schedule Session</Button>
+                          </form>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Room Cards */}
+              {rooms.length === 0 ? (
+                <div className="rounded-[2rem] p-16 text-center" style={{ background: `${CONTAINER}30`, border: `2px dashed ${GHOST_BORDER}` }}>
+                  <Users className="h-12 w-12 mx-auto mb-5" style={{ color: "#494847" }} />
+                  <p className="text-slate-900 dark:text-white font-bold text-lg mb-2" style={{ fontFamily: "Manrope, sans-serif" }}>No study rooms yet</p>
+                  <p className="text-slate-600 dark:text-[#71717a] text-sm mb-6">Start a new journey by creating a collaborative workspace.</p>
+                  <Button onClick={() => setCreateDialogOpen(true)} className="h-12 rounded-xl px-8 font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #cc97ff)", boxShadow: "0 8px 25px -5px rgba(156,72,234,0.35)" }}>
+                    <Plus className="h-4 w-4 mr-2" /> Create First Room
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 xl:grid-cols-3" style={{ gap: "1.4rem" }}>
+                  {rooms.map((room) => (
+                    <div
+                      key={room.id}
+                      className={cn(glassCard, "overflow-hidden group transition-all duration-300 hover:-translate-y-1.5")}
+                      style={{ background: cardBg, ...ghostBorder, transition: "all 0.3s ease" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 20px 50px -10px rgba(6,182,212,0.12)"; e.currentTarget.style.borderColor = "rgba(6,182,212,0.2)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = GHOST_BORDER; }}
+                    >
+                      {/* Top accent */}
+                      <div className="h-[2px] w-full opacity-60 group-hover:opacity-100 transition-opacity" style={{ background: "linear-gradient(90deg, #9c48ea, #7c3aed)" }} />
+
+                      <div className="p-7 space-y-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-base font-bold text-slate-900 dark:text-white leading-snug line-clamp-2 group-hover:text-[#4f46e5] dark:group-hover:text-[#a9c4ff] transition-colors" style={{ fontFamily: "Manrope, sans-serif" }}>{room.name}</h3>
+                          <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg" style={{ background: "rgba(16,185,129,0.08)", color: "#10b981", border: "1px solid rgba(16,185,129,0.2)" }}>Active</span>
+                        </div>
+
+                        <p className="text-sm text-slate-600 dark:text-[#adaaaa] line-clamp-2 leading-relaxed min-h-[2.5rem]">{room.description || "No description provided."}</p>
+
+                        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-[#71717a]">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-3.5 w-3.5" style={{ color: "#9c48ea" }} />
+                            <span>{room.profiles?.username || "Unknown"}</span>
+                          </div>
+                          <span>{new Date(room.created_at).toLocaleDateString()}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 pt-1">
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: isDarkMode ? "rgba(0,0,0,0.3)" : "rgba(148,163,184,0.16)", border: `1px solid ${GHOST_BORDER}` }}>
+                            <span className="text-[9px] font-mono uppercase text-slate-500 dark:text-[#71717a]">Code</span>
+                            <span className="text-sm font-bold tracking-[0.2em]" style={{ color: "#d8b4fe" }}>{room.room_code || "---"}</span>
+                          </div>
+                          <Button className="h-10 rounded-xl px-6 font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #7c3aed)", boxShadow: "0 6px 20px -5px rgba(156,72,234,0.35)" }} onClick={() => handleJoinRoom(room.id)}>
+                            Join
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Upcoming Sessions (in Rooms view) */}
+              {sessions.filter((s) => s.status === "scheduled").length > 0 && (
+                <section className="mt-12">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Calendar className="h-5 w-5" style={{ color: "#cc97ff" }} />
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "Manrope, sans-serif" }}>Upcoming Sessions</h2>
+                  </div>
+                  <div className="grid md:grid-cols-2 xl:grid-cols-3" style={{ gap: "1.4rem" }}>
+                    {sessions.filter((s) => s.status === "scheduled").slice(0, 6).map((session) => (
+                      <div key={session.id} className={cn(glassCard, "overflow-hidden group transition-all duration-300 hover:-translate-y-1")} style={{ background: cardBg, ...ghostBorder }}>
+                        <div className="h-[2px] w-full opacity-60 group-hover:opacity-100 transition-opacity" style={{ background: "linear-gradient(90deg, #9c48ea, #cc97ff)" }} />
+                        <div className="p-6 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1" style={{ fontFamily: "Manrope, sans-serif" }}>{session.title}</h3>
+                            <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded-lg" style={{ background: "rgba(156,72,234,0.08)", color: "#cc97ff", border: "1px solid rgba(156,72,234,0.2)" }}>{session.status}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-[#71717a]">
+                            <Crown className="h-3 w-3" style={{ color: "#f59e0b" }} />
+                            <span>{session.profiles?.username}</span>
+                            <span className="text-[#494847]">•</span>
+                            <span>{session.study_rooms?.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs" style={{ color: "#cc97ff" }}>
+                            <Clock className="h-3 w-3" />
+                            {new Date(session.start_time).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                          {session.room_id && (
+                            <Button size="sm" className="w-full rounded-xl font-bold text-white border-0 h-9" style={{ background: "linear-gradient(135deg, #9c48ea, #7c3aed)", boxShadow: "0 6px 15px -5px rgba(156,72,234,0.35)" }} onClick={() => handleJoinRoom(session.room_id)}>
+                              Join Room
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════ KANBAN VIEW ═══════════ */}
+          {viewMode === "kanban" && (
+            <div className="animate-in fade-in duration-300">
+              {/* Kanban Header */}
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <Columns3 className="h-5 w-5" style={{ color: "#cc97ff" }} />
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "Manrope, sans-serif" }}>Session Board</h2>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg ml-2" style={{ background: "rgba(156,72,234,0.08)", color: "#cc97ff", border: "1px solid rgba(156,72,234,0.2)" }}>
+                    {sessions.length} total
+                  </span>
+                </div>
+                {canScheduleSessions && (
+                  <Button onClick={() => setScheduleDialogOpen(true)} className="h-11 rounded-xl px-6 font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #cc97ff)", boxShadow: "0 8px 25px -5px rgba(156,72,234,0.35)" }}>
+                    <Plus className="h-4 w-4 mr-2" /> New Session
+                  </Button>
+                )}
+              </div>
+
+              {/* Kanban Columns */}
+              <div className="grid grid-cols-4 gap-5 min-h-[60vh]">
+                {kanbanColumns.map((col) => (
+                  <div
+                    key={col.key}
+                    className="rounded-[2rem] backdrop-blur-xl flex flex-col"
+                    style={{ background: col.accentBg, border: `1px solid ${col.accentBorder}`, minHeight: "400px" }}
+                  >
+                    {/* Column Header */}
+                    <div className="p-5 pb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: col.accent, boxShadow: `0 0 8px ${col.accent}40` }} />
+                        <span className="text-sm font-bold text-slate-900 dark:text-white" style={{ fontFamily: "Manrope, sans-serif" }}>{col.label}</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background: `${col.accent}15`, color: col.accent }}>{col.items.length}</span>
+                    </div>
+
+                    {/* Column Cards */}
+                    <div className="flex-1 px-4 pb-4 space-y-3 overflow-y-auto">
+                      {col.items.length === 0 ? (
+                        <div className="h-24 rounded-2xl flex items-center justify-center" style={{ border: `2px dashed ${col.accentBorder}` }}>
+                          <p className="text-xs text-slate-500 dark:text-[#494847] font-medium">No sessions</p>
+                        </div>
+                      ) : col.items.map((session) => (
+                        <div
+                          key={session.id}
+                          className="rounded-2xl cursor-pointer transition-all duration-200 hover:-translate-y-0.5 group"
+                          style={{ background: CONTAINER_HIGH, border: `1px solid ${GHOST_BORDER}`, borderLeft: `3px solid ${col.accent}` }}
+                          onClick={() => session.room_id && handleJoinRoom(session.room_id)}
+                        >
+                          <div className="p-4 space-y-2.5">
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2 group-hover:text-[#7c3aed] dark:group-hover:text-[#cc97ff] transition-colors" style={{ fontFamily: "Manrope, sans-serif" }}>
+                              {session.title}
+                            </h4>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-[#71717a]">
+                              <Crown className="h-3 w-3" style={{ color: "#f59e0b" }} />
+                              <span>{session.profiles?.username}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-[#71717a]">
+                              <Users className="h-3 w-3 opacity-60" />
+                              <span>{session.study_rooms?.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px]" style={{ color: col.accent }}>
+                              <Clock className="h-3 w-3" />
+                              {new Date(session.start_time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 };

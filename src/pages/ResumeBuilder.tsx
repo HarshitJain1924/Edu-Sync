@@ -397,16 +397,16 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
       .filter(Boolean);
 
   return (
-    <div className="min-h-screen bg-background text-foreground relative overflow-hidden">
+    <div className="min-h-screen bg-slate-100 dark:bg-[#0f0f0f] text-slate-900 dark:text-foreground relative overflow-hidden transition-colors duration-500">
       <AppSidebar />
       <div className="absolute -top-40 -left-20 w-[26rem] h-[26rem] rounded-full bg-indigo-500/20 blur-[120px] pointer-events-none" />
-      <div className="absolute top-1/3 -right-24 w-[26rem] h-[26rem] rounded-full bg-emerald-500/20 blur-[120px] pointer-events-none" />
+      <div className="absolute top-1/3 -right-24 w-[26rem] h-[26rem] rounded-full bg-[rgba(194,132,255,0.14)] blur-[120px] pointer-events-none" />
 
       <main className="ml-64 px-5 md:px-8 py-8 relative z-10 print:ml-0 print:px-8 print:py-8">
         <header className="mb-6 flex items-center justify-between gap-4 print:hidden">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-r from-white via-emerald-100 to-cyan-300 bg-clip-text text-transparent flex items-center gap-2">
-              <FileText className="h-7 w-7 text-emerald-300" />
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-r from-white via-purple-100 to-indigo-300 bg-clip-text text-transparent flex items-center gap-2">
+              <FileText className="h-7 w-7 text-purple-300" />
               Resume Builder
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -425,8 +425,8 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
         </header>
 
         {statusMessage && (
-          <div className="mb-4 text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2 flex items-center gap-2 print:hidden">
-            <Sparkles className="h-3.5 w-3.5 text-emerald-300" />
+          <div className="mb-4 text-xs text-purple-100 bg-purple-500/10 border border-purple-500/30 rounded-xl px-3 py-2 flex items-center gap-2 print:hidden">
+            <Sparkles className="h-3.5 w-3.5 text-purple-300" />
             <span>{statusMessage}</span>
           </div>
         )}
@@ -436,7 +436,7 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
             <Card className="rounded-2xl bg-white/5 border-white/10 mb-2">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Upload className="h-4 w-4 text-emerald-300" />
+                  <Upload className="h-4 w-4 text-purple-300" />
                   Import Existing Resume
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -449,7 +449,7 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
                     type="file"
                     accept=".pdf,application/pdf,.txt,text/plain"
                     onChange={handleFileUpload}
-                    className="text-xs file:text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-emerald-500/20 file:text-emerald-100"
+                    className="text-xs file:text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-purple-500/20 file:text-purple-100"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -484,20 +484,20 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
             </Card>
 
             {hasJobContext && (
-              <Card className="rounded-2xl bg-emerald-500/10 border-emerald-500/30 mb-2">
+              <Card className="rounded-2xl bg-purple-500/10 border-purple-500/30 mb-2">
                 <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                      <Briefcase className="h-4 w-4 text-emerald-300" />
+                    <div className="h-8 w-8 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                      <Briefcase className="h-4 w-4 text-purple-300" />
                     </div>
                     <div>
-                      <CardTitle className="text-sm text-emerald-100 flex flex-wrap items-center gap-2">
+                      <CardTitle className="text-sm text-purple-100 flex flex-wrap items-center gap-2">
                         Optimizing for this job
                       </CardTitle>
-                      {jobSummary && <CardDescription className="text-xs text-emerald-100/80">{jobSummary}</CardDescription>}
+                      {jobSummary && <CardDescription className="text-xs text-purple-100/80">{jobSummary}</CardDescription>}
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-emerald-100 hover:text-white" onClick={clearJobContext}>
+                  <Button variant="ghost" size="sm" className="text-purple-100 hover:text-white" onClick={clearJobContext}>
                     Clear
                   </Button>
                 </CardHeader>
@@ -507,7 +507,7 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
             <Card className="rounded-2xl bg-white/5 border-white/10">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-emerald-300" />
+                  <Sparkles className="h-4 w-4 text-purple-300" />
                   Resume Details
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -565,7 +565,7 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-7 px-2 text-[11px] border-emerald-500/40 text-emerald-100 bg-emerald-500/10 hover:bg-emerald-500/20"
+                        className="h-7 px-2 text-[11px] border-purple-500/40 text-purple-100 bg-purple-500/10 hover:bg-purple-500/20"
                         disabled={isImproving}
                         onClick={() => improveSection(key)}
                       >
@@ -605,7 +605,7 @@ Tailor the wording and keywords to fit this job while staying honest to the orig
             <Card className="rounded-2xl bg-white/5 border-white/10 print:border-none print:bg-transparent">
               <CardHeader className="pb-3 print:hidden">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-emerald-300" />
+                  <FileText className="h-4 w-4 text-amber-300" />
                   Live Preview
                 </CardTitle>
                 <CardDescription className="text-xs">

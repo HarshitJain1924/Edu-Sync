@@ -1,44 +1,66 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 
-export function ThemeToggle() {
+interface ThemeToggleProps {
+  compact?: boolean;
+}
+
+export function ThemeToggle({ compact = false }: ThemeToggleProps) {
   const [isDark, setIsDark] = useState(true); // Default to our neon dark theme
 
-  useEffect(() => {
-    // Check saved theme from localStorage, otherwise default to dark
-    const savedTheme = localStorage.getItem("theme");
+  const applyTheme = (theme: "light" | "dark") => {
     const root = document.documentElement;
-    
-    // We force dark mode on mount if nothing is saved since the user wants dark as base
-    if (savedTheme === "light") {
-      root.classList.remove("dark");
-      setIsDark(false);
-    } else {
+    if (theme === "dark") {
       root.classList.add("dark");
       setIsDark(true);
+    } else {
+      root.classList.remove("dark");
+      setIsDark(false);
     }
+  };
+
+  useEffect(() => {
+    // Initialize from saved preference (dark by default)
+    const savedTheme = localStorage.getItem("theme") === "light" ? "light" : "dark";
+    applyTheme(savedTheme);
+
+    // Keep multiple toggle instances in sync across route changes/components
+    const handleThemeSync = () => {
+      const nextTheme = localStorage.getItem("theme") === "light" ? "light" : "dark";
+      applyTheme(nextTheme);
+    };
+
+    window.addEventListener("storage", handleThemeSync);
+    window.addEventListener("edusync:theme-changed", handleThemeSync);
+
+    return () => {
+      window.removeEventListener("storage", handleThemeSync);
+      window.removeEventListener("edusync:theme-changed", handleThemeSync);
+    };
   }, []);
 
   const toggleTheme = () => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-      setIsDark(false);
-    } else {
-      root.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-      setIsDark(true);
-    }
+    const nextTheme: "light" | "dark" = isDark ? "light" : "dark";
+    localStorage.setItem("theme", nextTheme);
+    applyTheme(nextTheme);
+    window.dispatchEvent(new Event("edusync:theme-changed"));
   };
 
   return (
     <button
       onClick={toggleTheme}
-      className="flex items-center justify-center rounded-full border border-white/15 bg-white/5 p-2 text-white transition-transform duration-300 hover:scale-110 hover:bg-white/10 shadow-[0_0_15px_rgba(204,151,255,0.15)]"
+      className={
+        compact
+          ? "flex items-center justify-center rounded-lg p-2 text-slate-600 dark:text-zinc-300 transition-colors duration-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5"
+          : "flex items-center justify-center rounded-full border border-slate-300 dark:border-white/15 bg-white/80 dark:bg-white/5 p-2 text-slate-800 dark:text-white transition-transform duration-300 hover:scale-105 hover:bg-slate-100 dark:hover:bg-white/10"
+      }
       aria-label="Toggle theme"
     >
-      {isDark ? <Sun className="h-4 w-4 text-secondary-dim hover:text-secondary drop-shadow-[0_0_8px_#699cff]" /> : <Moon className="h-4 w-4 text-slate-800" />}
+      {isDark ? (
+        <Sun className={compact ? "h-4 w-4 text-amber-500 dark:text-zinc-300" : "h-4 w-4 text-amber-500 dark:text-secondary-dim dark:hover:text-secondary dark:drop-shadow-[0_0_8px_#699cff]"} />
+      ) : (
+        <Moon className={compact ? "h-4 w-4 text-indigo-600 dark:text-zinc-300" : "h-4 w-4 text-indigo-600 dark:text-slate-200"} />
+      )}
     </button>
   );
 }

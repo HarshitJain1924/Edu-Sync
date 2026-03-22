@@ -4,7 +4,7 @@ const Features = () => {
   const navigate = useNavigate();
   return (
     <>
-      <section className="max-w-7xl mx-auto px-6 py-32" id="features">
+      <section className="max-w-7xl mx-auto px-6 py-32" id="products">
         
         {/* Ambient Depth Backgrounds for the whole section */}
         <div className="absolute inset-0 -z-10 pointer-events-none opacity-50 dark:opacity-100 overflow-hidden">
@@ -14,7 +14,7 @@ const Features = () => {
         </div>
 
         {/* Story 1: Conversational AI */}
-        <div className="flex flex-col md:flex-row items-center gap-16 mb-40 relative">
+        <div id="why-edusync" className="flex flex-col md:flex-row items-center gap-16 mb-40 relative">
           <div className="w-full md:w-1/2 order-2 md:order-1 relative group">
             {/* The Chat Application Container */}
             <div className="relative bg-white border border-slate-200 dark:bg-[#0a0a0c]/90 dark:border-white/5 rounded-[2.5rem] p-8 backdrop-blur-3xl shadow-2xl dark:shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8)] transition-all duration-700 hover:-translate-y-3 hover:shadow-[0_40px_80px_-20px_rgba(204,151,255,0.15)] dark:hover:shadow-[0_50px_100px_-20px_rgba(204,151,255,0.2)] dark:hover:border-white/10 group-hover:scale-[1.01]">
@@ -252,7 +252,7 @@ const Features = () => {
       </section>
 
       {/* Modern CTA */}
-      <section className="max-w-7xl mx-auto px-6 py-24 mb-16">
+      <section id="faq" className="max-w-7xl mx-auto px-6 py-24 mb-16">
         <div className="bg-gradient-to-br from-indigo-900 dark:from-[#120a2e] to-slate-900 dark:to-[#0a1024] border border-slate-800 dark:border-white/10 rounded-[3rem] p-16 md:p-24 text-center relative overflow-hidden group">
           <div className="absolute inset-0 bg-transparent dark:bg-noisy dark:opacity-30 mix-blend-overlay pointer-events-none"></div>
           <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')] bg-cover bg-center opacity-10 mix-blend-overlay group-hover:opacity-20 transition-opacity duration-1000 group-hover:scale-[1.02]"></div>

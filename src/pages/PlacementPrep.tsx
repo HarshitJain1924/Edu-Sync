@@ -589,7 +589,7 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center backdrop-blur-sm" onClick={() => setShowDifficultyPicker(false)}>
               <div className="bg-gray-900 border border-white/10 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <h3 className="text-xl font-bold text-white mb-2">Select Difficulty</h3>
-                <p className="text-gray-400 text-sm mb-6">Choose the difficulty level for your practice session</p>
+                <p className="text-slate-600 dark:text-gray-400 text-sm mb-6">Choose the difficulty level for your practice session</p>
                 <div className="grid grid-cols-2 gap-3">
                   {DIFFICULTIES.map((d) => (
                     <button
@@ -616,7 +616,7 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                   </div>
                   Placement Prep
                 </h1>
-                <p className="text-gray-400 mt-2">AI-powered preparation for campus placements & interviews</p>
+                <p className="text-slate-600 dark:text-gray-400 mt-2">AI-powered preparation for campus placements & interviews</p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button
                     variant="outline"
@@ -636,7 +636,7 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                       <div className="p-2 rounded-lg bg-blue-500/20"><Target className="h-5 w-5 text-blue-400" /></div>
                       <div>
                         <p className="text-2xl font-bold text-white">{avgScore}%</p>
-                        <p className="text-xs text-gray-400">Avg Score</p>
+                        <p className="text-xs text-slate-600 dark:text-gray-400">Avg Score</p>
                       </div>
                     </div>
                   </CardContent>
@@ -647,7 +647,7 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                       <div className="p-2 rounded-lg bg-green-500/20"><CheckCircle2 className="h-5 w-5 text-green-400" /></div>
                       <div>
                         <p className="text-2xl font-bold text-white">{totalTests}</p>
-                        <p className="text-xs text-gray-400">Tests Taken</p>
+                        <p className="text-xs text-slate-600 dark:text-gray-400">Tests Taken</p>
                       </div>
                     </div>
                   </CardContent>
@@ -658,7 +658,7 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                       <div className="p-2 rounded-lg bg-purple-500/20"><BarChart3 className="h-5 w-5 text-purple-400" /></div>
                       <div>
                         <p className="text-2xl font-bold text-white">{scores.filter((s) => (s.score / s.total) >= 0.7).length}</p>
-                        <p className="text-xs text-gray-400">Topics Mastered</p>
+                        <p className="text-xs text-slate-600 dark:text-gray-400">Topics Mastered</p>
                       </div>
                     </div>
                   </CardContent>
@@ -669,7 +669,7 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                       <div className="p-2 rounded-lg bg-orange-500/20"><AlertTriangle className="h-5 w-5 text-orange-400" /></div>
                       <div>
                         <p className="text-2xl font-bold text-white">{weakTopics.length}</p>
-                        <p className="text-xs text-gray-400">Weak Areas</p>
+                        <p className="text-xs text-slate-600 dark:text-gray-400">Weak Areas</p>
                       </div>
                     </div>
                   </CardContent>

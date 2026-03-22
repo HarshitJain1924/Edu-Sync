@@ -301,7 +301,7 @@ const Flashcards = () => {
 
   if (loading && !selectedSet) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-[#0f172a] flex items-center justify-center transition-colors duration-500">
         <Brain className="h-12 w-12 animate-pulse text-primary" />
       </div>
     );
@@ -309,7 +309,7 @@ const Flashcards = () => {
 
   if (!selectedSet) {
     return (
-      <div className="min-h-screen bg-[#0f172a] p-8 text-white relative overflow-hidden">
+      <div className="min-h-screen bg-slate-100 dark:bg-[#0f172a] p-8 text-slate-900 dark:text-white relative overflow-hidden transition-colors duration-500">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/20 rounded-full blur-[120px] pointer-events-none" />
 
@@ -350,7 +350,7 @@ const Flashcards = () => {
 
   if (flashcards.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0f172a] p-8 text-white relative overflow-hidden">
+      <div className="min-h-screen bg-slate-100 dark:bg-[#0f172a] p-8 text-slate-900 dark:text-white relative overflow-hidden transition-colors duration-500">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/20 rounded-full blur-[120px] pointer-events-none" />
 
