@@ -2,7 +2,7 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}", "./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}"],
   prefix: "",
   theme: {
     container: {
@@ -13,26 +13,69 @@ export default {
       },
     },
     extend: {
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-      },
       colors: {
+        "tertiary-fixed": "#ff9099",
+        "tertiary-container": "#fc4563",
+        "on-secondary-fixed-variant": "#004da8",
+        "error-dim": "#d73357",
+        "error": "#ff6e84",
+        "primary": "#cc97ff",
+        "on-secondary": "#001e4a",
+        "on-tertiary-fixed": "#39000b",
+        "on-secondary-fixed": "#003271",
+        "surface-tint": "#cc97ff",
+        "inverse-surface": "#fcf8f8",
+        "secondary-fixed": "#bfd1ff",
+        "primary-fixed": "#c284ff",
+        "surface-container-highest": "#262626",
+        "surface-bright": "#2c2c2c",
+        "on-secondary-container": "#f7f7ff",
+        "on-error-container": "#ffb2b9",
+        "on-error": "#490013",
+        "outline": "#777575",
+        "primary-dim": "#9c48ea",
+        "outline-variant": "#494847",
+        "on-primary-fixed": "#000000",
+        "surface-container-low": "#131313",
+        "surface-dim": "#0e0e0e",
+        "on-surface-variant": "#adaaaa",
+        "tertiary-dim": "#ff6f7e",
+        "on-background": "#ffffff",
+        "primary-container": "#c284ff",
+        "on-tertiary-fixed-variant": "#780021",
+        "tertiary-fixed-dim": "#ff7986",
+        "error-container": "#a70138",
+        "secondary-dim": "#699cff",
+        "secondary-fixed-dim": "#a9c4ff",
+        "surface": "#0e0e0e",
+        "tertiary": "#ff6f7e",
+        "background": "#0e0e0e",
+        "inverse-on-surface": "#565554",
+        "on-primary": "#47007c",
+        "on-tertiary-container": "#100001",
+        "surface-container-lowest": "#000000",
+        "on-surface": "#ffffff",
+        "secondary": "#699cff",
+        "surface-container": "#1a1919",
+        "secondary-container": "#005ac2",
+        "inverse-primary": "#842cd3",
+        "on-primary-container": "#360061",
+        "primary-fixed-dim": "#b971ff",
+        "surface-variant": "#262626",
+        "on-tertiary": "#490010",
+        "surface-container-high": "#201f1f",
+        "on-primary-fixed-variant": "#430076",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
         },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
@@ -42,63 +85,35 @@ export default {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
         },
       },
-      backgroundImage: {
-        'gradient-primary': 'var(--gradient-primary)',
-        'gradient-secondary': 'var(--gradient-secondary)',
-        'gradient-hero': 'var(--gradient-hero)',
+      fontFamily: {
+        "headline": ["Syne", "sans-serif"],
+        "body": ["Manrope", "sans-serif"],
+        "label": ["IBM Plex Mono", "monospace"]
       },
+      borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
       boxShadow: {
-        'soft': 'var(--shadow-soft)',
-        'medium': 'var(--shadow-medium)',
-        'hard': 'var(--shadow-hard)',
-        'glow': 'var(--shadow-glow)',
-      },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-      },
-      keyframes: {
-        "accordion-down": {
-          from: {
-            height: "0",
-          },
-          to: {
-            height: "var(--radix-accordion-content-height)",
-          },
-        },
-        "accordion-up": {
-          from: {
-            height: "var(--radix-accordion-content-height)",
-          },
-          to: {
-            height: "0",
-          },
-        },
+        soft: "0 4px 20px 0px rgba(0, 0, 0, 0.05)",
+        glow: "0 0 20px rgba(156, 72, 234, 0.5)",
       },
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
+        'nebula-pulse': 'nebula 15s ease-in-out infinite alternate',
+        'orbit': 'orbit 8s linear infinite',
       },
+      keyframes: {
+        nebula: {
+          '0%': { transform: 'scale(1) translate(0%, 0%)', opacity: '0.4' },
+          '100%': { transform: 'scale(1.2) translate(5%, 5%)', opacity: '0.6' },
+        },
+        orbit: {
+          '0%': { transform: 'rotate(0deg) translateX(120px) rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg) translateX(120px) rotate(-360deg)' },
+        }
+      }
     },
   },
   plugins: [require("tailwindcss-animate")],

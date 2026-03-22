@@ -4,9 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import Features from "@/components/Features";
-import Highlights from "@/components/home/Highlights";
-import GamesPreview from "@/components/home/GamesPreview";
-import TeacherAdmin from "@/components/home/TeacherAdmin";
 import Footer from "@/components/Footer";
 
 const Index = () => {
@@ -22,14 +19,15 @@ const Index = () => {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen">
-      <Navbar />
-      <Hero />
-      <Features />
-      <Highlights />
-      <GamesPreview />
-      <TeacherAdmin />
-      <Footer />
+    <div className="min-h-screen bg-slate-50 dark:bg-[#020202] text-slate-900 dark:text-slate-100 font-body selection:bg-indigo-300/40 selection:text-white relative transition-colors duration-500">
+      <div className="relative z-10">
+        <Navbar />
+        <main className="relative overflow-hidden w-full">
+          <Hero />
+          <Features />
+        </main>
+        <Footer />
+      </div>
     </div>
   );
 };

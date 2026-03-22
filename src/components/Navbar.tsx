@@ -1,89 +1,40 @@
-import { Button } from "@/components/ui/button";
-import { Brain, Menu, X } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ThemeToggle } from "./ThemeToggle";
 
 const Navbar = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-lg border-b border-border shadow-soft">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="p-2 bg-gradient-hero rounded-lg shadow-medium group-hover:shadow-glow transition-all">
-              <Brain className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-              EduSync
-            </span>
-          </Link>
+    <nav className="fixed inset-x-0 top-4 z-50 px-4 md:px-6">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-between rounded-full border border-slate-200/50 dark:border-white/12 bg-white/80 dark:bg-[#070a17]/55 px-4 py-3 backdrop-blur-2xl md:px-6 shadow-sm dark:shadow-none">
+        <button className="group inline-flex items-center gap-2" onClick={() => navigate("/")}>
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-indigo-500 text-[10px] font-bold text-white">E</span>
+          <span className="font-headline text-xl font-bold tracking-tight text-slate-900 dark:text-white">EduSync</span>
+          <span className="hidden rounded-full border border-slate-200 dark:border-white/15 px-2 py-1 font-label text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-500 dark:text-indigo-200 sm:inline-flex">2026</span>
+        </button>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-6">
-            <Link to="/" className="text-sm font-medium hover:text-primary transition-colors">
-              Home
-            </Link>
-            <a href="/#features" className="text-sm font-medium hover:text-primary transition-colors">
-              Features
-            </a>
-            <a href="/#about" className="text-sm font-medium hover:text-primary transition-colors">
-              About
-            </a>
-            <div className="flex items-center gap-3 ml-4">
-              <Button variant="ghost" onClick={() => navigate("/auth")}>
-                Login
-              </Button>
-              <Button variant="hero" onClick={() => navigate("/auth")}>
-                Get Started
-              </Button>
-            </div>
-          </div>
-
-          {/* Mobile Menu Button */}
-          <button
-            className="md:hidden p-2 hover:bg-accent rounded-lg transition-colors"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
-            {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </button>
+        <div className="hidden items-center gap-7 font-label text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400 md:flex">
+          <a className="transition-colors hover:text-slate-900 dark:hover:text-white" href="#products">Platform</a>
+          <a className="transition-colors hover:text-slate-900 dark:hover:text-white" href="#why-edusync">Approach</a>
+          <a className="transition-colors hover:text-slate-900 dark:hover:text-white" href="#results">Outcomes</a>
+          <a className="transition-colors hover:text-slate-900 dark:hover:text-white" href="#faq">FAQ</a>
         </div>
 
-        {/* Mobile Menu */}
-        {isMenuOpen && (
-          <div className="md:hidden py-4 space-y-4 border-t border-border">
-            <Link
-              to="/"
-              className="block py-2 text-sm font-medium hover:text-primary transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Home
-            </Link>
-            <a
-              href="/#features"
-              className="block py-2 text-sm font-medium hover:text-primary transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Features
-            </a>
-            <a
-              href="/#about"
-              className="block py-2 text-sm font-medium hover:text-primary transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              About
-            </a>
-            <div className="flex flex-col gap-2 pt-2">
-              <Button variant="ghost" onClick={() => navigate("/auth")} className="w-full">
-                Login
-              </Button>
-              <Button variant="hero" onClick={() => navigate("/auth")} className="w-full">
-                Get Started
-              </Button>
-            </div>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <button
+            className="rounded-full border border-slate-200 dark:border-white/15 px-4 py-2 font-label text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-300 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white"
+            onClick={() => navigate("/auth")}
+          >
+            Log In
+          </button>
+          <button
+            onClick={() => navigate("/auth")}
+            className="rounded-full bg-gradient-to-r from-fuchsia-500 to-indigo-500 px-4 py-2 font-label text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition-transform duration-300 hover:scale-[1.02]"
+          >
+            Start Free
+          </button>
+        </div>
       </div>
     </nav>
   );
