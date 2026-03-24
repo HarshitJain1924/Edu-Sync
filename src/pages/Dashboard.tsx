@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { motion, AnimatePresence, useMotionValue, useSpring, useMotionTemplate } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -49,7 +50,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { supabase } from "@/integrations/supabase/client";
-import AppSidebar from "@/components/AppSidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { cn } from "@/lib/utils";
 
 interface DashboardStats {
   totalCourses: number;
@@ -617,7 +619,7 @@ const Dashboard = () => {
   };
 
   const tabs: TabProps[] = [
-    { id: "progress", label: "My Progress", icon: <BarChart3 className="w-4 h-4" /> },
+    { id: "progress", label: "Dashboard", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "leaderboard", label: "Leaderboard", icon: <TrendingUp className="w-4 h-4" /> },
     { id: "achievements", label: "Achievements", icon: <Award className="w-4 h-4" /> },
   ];
@@ -799,7 +801,41 @@ const Dashboard = () => {
   }, [featuredCourse.thumbnailUrl, featuredCourse.topic, featuredCourse.title]);
 
   const floatingGlassCardClass =
-    "rounded-3xl bg-white dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200 dark:border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_40px_rgba(0,0,0,0.4)] transition-all duration-300 hover:-translate-y-1 hover:shadow-xl dark:hover:shadow-xl";
+    "rounded-3xl bg-white dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200 dark:border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_40px_rgba(0,0,0,0.4)] transition-all duration-300";
+
+  const SpotlightCard = ({ children, className }: { children: React.ReactNode; className?: string }) => {
+    const mouseX = useMotionValue(0);
+    const mouseY = useMotionValue(0);
+
+    function handleMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent) {
+      const { left, top } = currentTarget.getBoundingClientRect();
+      mouseX.set(clientX - left);
+      mouseY.set(clientY - top);
+    }
+
+    return (
+      <motion.div
+        onMouseMove={handleMouseMove}
+        whileHover={{ y: -5, scale: 1.01 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        className={cn("group relative overflow-hidden", className)}
+      >
+        <motion.div
+          className="pointer-events-none absolute -inset-px rounded-3xl opacity-0 transition duration-300 group-hover:opacity-100"
+          style={{
+            background: useMotionTemplate`
+              radial-gradient(
+                650px circle at ${mouseX}px ${mouseY}px,
+                rgba(139, 92, 246, 0.15),
+                transparent 80%
+              )
+            `,
+          }}
+        />
+        {children}
+      </motion.div>
+    );
+  };
 
   const renderStats = () => (
     <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
@@ -809,7 +845,7 @@ const Dashboard = () => {
         { label: "Total XP", value: `${stats.totalXP.toLocaleString()}`, hint: "Top track", icon: Zap },
         { label: "Daily Streak", value: `${stats.streak} Days`, hint: "Elite", icon: Flame },
       ].map((item) => (
-        <Card key={item.label} className={`${floatingGlassCardClass} shadow-[0_20px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.03)]`}>
+        <SpotlightCard key={item.label} className={cn(floatingGlassCardClass, "shadow-[0_20px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.03)]")}>
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-[10px] tracking-[0.18em] uppercase font-bold text-slate-600 dark:text-zinc-400">{item.label}</p>
@@ -822,7 +858,7 @@ const Dashboard = () => {
               </span>
             </div>
           </CardContent>
-        </Card>
+        </SpotlightCard>
       ))}
     </section>
   );
@@ -876,7 +912,16 @@ const Dashboard = () => {
           <div className="hidden lg:block">
             <div className="rounded-3xl border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-white/5 p-2.5 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.12)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
               <div className="relative rounded-2xl overflow-hidden aspect-square bg-slate-200 dark:bg-black/70 group">
-                <img
+                <motion.img
+                  animate={{ 
+                    y: [0, -10, 0],
+                    rotate: [0, 0.5, 0]
+                  }}
+                  transition={{ 
+                    duration: 6, 
+                    repeat: Infinity, 
+                    ease: "easeInOut" 
+                  }}
                   src={heroImageUrl}
                   alt="Course Preview"
                   className="h-full w-full object-cover opacity-82 transition-transform duration-700 group-hover:scale-110"
@@ -1001,8 +1046,11 @@ const Dashboard = () => {
               const hasClasses = lane.items.length > 0;
               const isActive = selectedDay === i;
               return (
-                <button
+                <motion.button
                   key={lane.key}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
                   onClick={() => setSelectedDay(i)}
                   className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-4 py-3 rounded-2xl border transition-all duration-300 min-w-[72px] relative ${
                     isActive
@@ -1019,7 +1067,7 @@ const Dashboard = () => {
                   {hasClasses && (
                     <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${lane.isToday ? "bg-emerald-400 animate-pulse" : "bg-violet-400"}`} />
                   )}
-                </button>
+                </motion.button>
               );
             })}
           </div>
@@ -1162,37 +1210,36 @@ const Dashboard = () => {
           <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">Practice Hub</CardTitle>
         </CardHeader>
         <CardContent className="px-8 pb-8 space-y-5">
-          <p className="text-sm text-slate-600 dark:text-zinc-400">One place for revision and recall. Use quizzes for testing and flashcards for spaced repetition.</p>
+          <p className="text-sm text-slate-600 dark:text-zinc-400">One place for revision and recall. Use quizzes for testing knowledge.</p>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <Button
               className="h-11 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-100 font-semibold"
               onClick={() => navigate("/quiz")}
             >
               Quiz Mode
             </Button>
-            <Button
-              variant="outline"
-              className="h-11 rounded-xl border-slate-200 dark:border-white/15 bg-slate-100 dark:bg-white/5 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10"
-              onClick={() => navigate("/flashcards")}
-            >
-              Flashcards
-            </Button>
           </div>
 
           <Separator className="bg-slate-200 dark:bg-white/10" />
 
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-600 dark:text-zinc-400 font-semibold">Momentum Score</span>
-            <span className="text-violet-700 dark:text-violet-200 font-bold">High Efficiency</span>
-          </div>
-
-          <div className="flex gap-2">
-            {["🔥", "🧠", "🎯"].map((emoji) => (
-              <div key={emoji} className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 flex items-center justify-center">
-                {emoji}
+          <div className="space-y-3 p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 dark:border-violet-400/20">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-violet-500/20 text-violet-600 dark:text-violet-300 flex-shrink-0">
+                <Sparkles className="h-4 w-4" />
               </div>
-            ))}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-1">Personalize Your Learning</p>
+                <p className="text-xs text-slate-600 dark:text-zinc-400 mb-3">Discover your learning style to get tailored content recommendations.</p>
+                <Button
+                  size="sm"
+                  className="h-8 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs"
+                  onClick={() => navigate("/learning-style-quiz")}
+                >
+                  Take Quiz
+                </Button>
+              </div>
+            </div>
           </div>
 
           <Separator className="bg-slate-200 dark:bg-white/10" />
@@ -1230,22 +1277,36 @@ const Dashboard = () => {
 
       <Card className={`${floatingGlassCardClass} overflow-hidden`}>
         <CardContent className="p-0 divide-y divide-slate-200 dark:divide-white/10">
-          {recentActivity.length === 0 ? (
-            <div className="p-6 text-slate-600 dark:text-zinc-400 text-sm">No recent activity yet.</div>
-          ) : (
-            recentActivity.slice(0, 6).map((item) => (
-              <div key={item.id} className="p-6 flex items-center gap-4 hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-all duration-300 hover:-translate-y-1">
-                <div className="h-11 w-11 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 flex items-center justify-center text-violet-600 dark:text-violet-200">
-                  <TrendingUp className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 dark:text-white truncate">{item.action}</p>
-                  <p className="text-sm text-slate-600 dark:text-zinc-400 truncate">{item.title}</p>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-zinc-500 whitespace-nowrap">{item.dateLabel}</p>
-              </div>
-            ))
-          )}
+          <AnimatePresence mode="popLayout">
+            {recentActivity.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="p-6 text-slate-600 dark:text-zinc-400 text-sm"
+              >
+                No recent activity yet.
+              </motion.div>
+            ) : (
+              recentActivity.slice(0, 6).map((item, idx) => (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  className="p-6 flex items-center gap-4 hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-all duration-300 hover:pl-8 cursor-default group"
+                >
+                  <div className="h-11 w-11 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 flex items-center justify-center text-violet-600 dark:text-violet-200 group-hover:scale-110 transition-transform duration-300">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900 dark:text-white truncate">{item.action}</p>
+                    <p className="text-sm text-slate-600 dark:text-zinc-400 truncate">{item.title}</p>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-zinc-500 whitespace-nowrap">{item.dateLabel}</p>
+                </motion.div>
+              ))
+            )}
+          </AnimatePresence>
         </CardContent>
       </Card>
     </section>
@@ -1271,14 +1332,25 @@ const Dashboard = () => {
         {leaderboard.length === 0 && (
           <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 p-4 text-slate-700 dark:text-zinc-300">Leaderboard data is not available yet.</div>
         )}
-        {leaderboard.map((item) => (
-          <div key={item.rank} className={`rounded-2xl border p-4 flex items-center justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${item.isYou ? "bg-violet-100 dark:bg-violet-500/10 border-violet-300 dark:border-violet-400/30" : "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10"}`}>
+        {leaderboard.map((item, idx) => (
+          <motion.div
+            key={item.rank}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: idx * 0.05 }}
+            className={cn(
+              "rounded-2xl border p-4 flex items-center justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
+              item.isYou 
+                ? "bg-violet-100 dark:bg-violet-500/10 border-violet-300 dark:border-violet-400/30" 
+                : "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10"
+            )}
+          >
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-xl bg-slate-200 dark:bg-black/40 border border-slate-300 dark:border-white/10 flex items-center justify-center text-sm font-bold text-slate-700 dark:text-zinc-300">#{item.rank}</div>
               <p className="text-slate-900 dark:text-white font-semibold">{item.name}</p>
             </div>
             <p className="text-slate-700 dark:text-zinc-300 font-semibold">{(item.xp / 1000).toFixed(0)}K XP</p>
-          </div>
+          </motion.div>
         ))}
       </CardContent>
     </Card>
@@ -1286,17 +1358,24 @@ const Dashboard = () => {
 
   const renderAchievements = () => (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {computeAchievements(stats).map((achievement) => (
-        <Card key={achievement.title} className={`${floatingGlassCardClass} rounded-2xl ${achievement.unlocked ? "border-violet-300 dark:border-violet-300/25" : "border-slate-200 dark:border-white/10"}`}>
-          <CardContent className="p-5 text-center">
-            <p className="text-3xl mb-2">{achievement.icon}</p>
-            <p className="text-slate-900 dark:text-white font-semibold text-sm">{achievement.title}</p>
-            <p className="text-slate-600 dark:text-zinc-400 text-xs mt-1">{achievement.desc}</p>
-            <p className={`text-[11px] mt-2 font-bold ${achievement.unlocked ? "text-violet-700 dark:text-violet-200" : "text-slate-500 dark:text-zinc-500"}`}>
-              {achievement.unlocked ? "Unlocked" : "Locked"}
-            </p>
-          </CardContent>
-        </Card>
+      {computeAchievements(stats).map((achievement, idx) => (
+        <motion.div
+          key={achievement.title}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: idx * 0.05 }}
+        >
+          <Card className={cn(floatingGlassCardClass, "rounded-2xl h-full", achievement.unlocked ? "border-violet-300 dark:border-violet-300/25" : "border-slate-200 dark:border-white/10")}>
+            <CardContent className="p-5 text-center">
+              <p className="text-3xl mb-2">{achievement.icon}</p>
+              <p className="text-slate-900 dark:text-white font-semibold text-sm">{achievement.title}</p>
+              <p className="text-slate-600 dark:text-zinc-400 text-xs mt-1">{achievement.desc}</p>
+              <p className={`text-[11px] mt-2 font-bold ${achievement.unlocked ? "text-violet-700 dark:text-violet-200" : "text-slate-500 dark:text-zinc-500"}`}>
+                {achievement.unlocked ? "Unlocked" : "Locked"}
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
       ))}
     </div>
   );
@@ -1317,42 +1396,35 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-[#0f0f0f] text-slate-900 dark:text-white overflow-x-hidden transition-colors duration-500">
-      <div
-        className="fixed inset-0 pointer-events-none z-0"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 2px 2px, rgba(0,0,0,0.02) 1px, transparent 0), radial-gradient(circle at 2px 2px, rgba(255,255,255,0.03) 1px, transparent 0)",
-          backgroundSize: "40px 40px, 40px 40px",
-        }}
-      />
+      {/* Ambient Gradient Depth */}
       <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute -top-[15%] -right-[10%] h-[55%] w-[55%] bg-violet-500/[0.08] blur-[140px]" />
-        <div className="absolute -bottom-[10%] -left-[10%] h-[55%] w-[55%] bg-blue-500/[0.06] blur-[140px]" />
-        <div className="absolute top-[35%] left-[20%] h-[35%] w-[35%] bg-violet-500/5 blur-[130px]" />
+        <div className="absolute top-0 right-0 h-screen w-screen bg-[radial-gradient(circle_at_80%_20%,rgba(139,92,246,0.05),transparent_70%)]" />
+        <div className="absolute -bottom-10 -left-10 h-screen w-screen bg-[radial-gradient(circle_at_20%_80%,rgba(59,130,246,0.03),transparent_70%)]" />
       </div>
 
       <AppSidebar />
 
-      <header className={`fixed left-0 right-0 top-0 z-30 h-20 border-b border-slate-200 dark:border-white/10 bg-white/70 dark:bg-black/40 backdrop-blur-xl transition-all duration-300 ${isSidebarCollapsed ? "md:left-16" : "md:left-64"}`}>
-        <div className="h-full px-4 md:px-10 flex items-center justify-between gap-4">
+      <header className={cn("fixed top-0 left-0 right-0 z-[60] h-24 flex items-center justify-between px-6 md:px-12 pointer-events-none transition-all duration-300", isSidebarCollapsed ? "md:left-16" : "md:left-64")}>
+        {/* Floating Glass Header */}
+        <div className="flex-1 flex items-center justify-between h-16 bg-white/70 dark:bg-zinc-900/40 backdrop-blur-2xl border border-white dark:border-white/10 rounded-full px-4 md:px-6 shadow-xl pointer-events-auto">
           <div className="flex items-center gap-3">
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10">
+                <Button variant="ghost" size="icon" className="md:hidden text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10 rounded-full">
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-80 border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white">
+              <SheetContent side="left" className="w-80 border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white rounded-r-3xl">
                 <SheetHeader>
                   <SheetTitle className="text-slate-900 dark:text-white">EduSync</SheetTitle>
-                  <SheetDescription className="text-slate-600 dark:text-zinc-400">Navigate your learning workspace.</SheetDescription>
+                  <SheetDescription className="text-slate-600 dark:text-zinc-400">Navigate your workspace.</SheetDescription>
                 </SheetHeader>
                 <div className="mt-6 space-y-2">
                   {mobileNavItems.map((item) => (
                     <Button
                       key={item.path}
                       variant="ghost"
-                      className="w-full justify-between text-slate-700 dark:text-zinc-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
+                      className="w-full justify-between text-slate-700 dark:text-zinc-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 rounded-xl"
                       onClick={() => navigate(item.path)}
                     >
                       <span>{item.label}</span>
@@ -1363,76 +1435,87 @@ const Dashboard = () => {
               </SheetContent>
             </Sheet>
 
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Academy Dashboard</h1>
-          </div>
-
-          <div className="hidden lg:flex items-center gap-7 text-[10px] font-bold uppercase tracking-[0.18em]">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`relative py-1 transition-colors ${activeTab === tab.id ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-white"}`}
-              >
-                {tab.label}
-                {activeTab === tab.id && <span className="absolute -bottom-[23px] left-0 h-[2px] w-full bg-violet-300" />}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10">
+            {/* Nav Switcher (Reference: Pill Tab Switcher) */}
+            <div className="flex items-center bg-slate-100 dark:bg-white/5 rounded-full p-1 border border-slate-200/50 dark:border-white/5 shadow-inner">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={cn(
+                        "relative flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all duration-300",
+                        activeTab === tab.id 
+                            ? "text-primary dark:text-white" 
+                            : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    {activeTab === tab.id && (
+                      <motion.div
+                        layoutId="activeTabPill"
+                        className="absolute inset-0 bg-white dark:bg-white/10 shadow-md shadow-primary/5 rounded-full"
+                        transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                      />
+                    )}
+                    <div className={cn("relative z-10 transition-colors", activeTab === tab.id ? "text-primary" : "text-slate-400")}>{tab.icon}</div>
+                    <span className="relative z-10 hidden sm:inline-block">{tab.label}</span>
+                  </button>
+                ))}
+            </div>
+            
+            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 border border-transparent hover:border-slate-200/50">
               <Search className="h-4 w-4" />
             </Button>
+          </div>
 
+          <div className="flex items-center gap-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-xl text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10">
-                  <Bell className="h-4 w-4" />
-                  {unreadNotificationCount > 0 && <span className="absolute right-3 top-3 h-1.5 w-1.5 rounded-full bg-rose-400" />}
+                <Button variant="ghost" size="icon" className="relative h-11 w-11 rounded-full text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 shadow-sm border border-slate-200/50 dark:border-white/5">
+                  <Bell className="h-5 w-5" />
+                  {unreadNotificationCount > 0 && <span className="absolute right-3.5 top-3.5 h-2 w-2 rounded-full bg-rose-500 border-2 border-white dark:border-slate-900" />}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[360px] bg-white dark:bg-zinc-950 border-slate-200 dark:border-white/10 text-slate-900 dark:text-white p-0">
-                <div className="flex items-center justify-between px-3 py-2">
-                  <DropdownMenuLabel className="p-0">App Notifications</DropdownMenuLabel>
+              <DropdownMenuContent align="end" className="w-[360px] bg-white/95 dark:bg-zinc-950 border-slate-200 dark:border-white/10 rounded-2xl shadow-huge backdrop-blur-xl p-0 mt-4 animate-in slide-in-from-top-2">
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/5 rounded-t-2xl">
+                  <DropdownMenuLabel className="p-0 text-sm font-bold uppercase tracking-widest opacity-60">Notifications</DropdownMenuLabel>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-xs text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      markAllNotificationsRead();
-                    }}
+                    className="h-8 rounded-lg text-xs text-primary font-bold hover:bg-primary/10"
+                    onClick={() => markAllNotificationsRead()}
                   >
-                    <CheckCheck className="h-3.5 w-3.5 mr-1" /> Mark all read
+                    Mark all read
                   </Button>
                 </div>
-                <DropdownMenuSeparator className="bg-slate-200 dark:bg-white/10" />
+                <DropdownMenuSeparator className="m-0 bg-slate-200 dark:bg-white/10" />
 
                 <ScrollArea className="h-[360px]">
-                  <div className="p-1">
+                  <div className="p-2 space-y-1">
                     {notifications.length === 0 && (
-                      <DropdownMenuItem className="py-3 text-zinc-400" disabled>
+                      <div className="py-8 text-center text-slate-400 text-sm italic">
                         No notifications right now.
-                      </DropdownMenuItem>
+                      </div>
                     )}
 
                     {notifications.map((notification) => {
                       const isRead = readNotificationIds.includes(notification.id);
                       return (
-                        <DropdownMenuItem
+                        <div
                           key={notification.id}
-                          className={`items-start flex-col gap-1 py-2.5 px-2 cursor-pointer ${isRead ? "opacity-70" : ""}`}
+                          className={cn(
+                              "flex flex-col gap-1 p-3 rounded-xl cursor-pointer transition-colors",
+                              isRead ? "opacity-60 grayscale-[0.3]" : "bg-slate-100/50 dark:bg-white/5 hover:bg-slate-200/50 dark:hover:bg-white/10"
+                          )}
                           onClick={() => {
                             markNotificationRead(notification.id);
                             if (notification.route) navigate(notification.route);
                           }}
                         >
-                          <div className="w-full flex items-center justify-between gap-2">
-                            <p className="text-sm font-medium text-slate-900 dark:text-white line-clamp-1">{notification.title}</p>
-                            {!isRead && <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-zinc-200 shrink-0" />}
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-extrabold text-slate-900 dark:text-white line-clamp-1">{notification.title}</p>
+                            {!isRead && <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />}
                           </div>
-                          <p className="text-xs text-slate-600 dark:text-zinc-400 line-clamp-2">{notification.description}</p>
-                        </DropdownMenuItem>
+                          <p className="text-xs text-slate-600 dark:text-zinc-400 line-clamp-2 leading-relaxed">{notification.description}</p>
+                        </div>
                       );
                     })}
                   </div>
@@ -1442,26 +1525,30 @@ const Dashboard = () => {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="px-1.5 hover:bg-slate-100 dark:hover:bg-white/10 rounded-xl">
-                  <Avatar className="h-9 w-9 border border-slate-200 dark:border-white/10">
+                <Button variant="ghost" className="p-0.5 hover:scale-105 transition-transform rounded-full">
+                  <Avatar className="h-11 w-11 border-2 border-white dark:border-slate-800 shadow-lg">
                     {avatarUrl && <AvatarImage src={avatarUrl} alt={profileName} />}
-                    <AvatarFallback className="bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-white text-xs">
-                      {profileName?.charAt(0).toUpperCase() || "U"}
+                    <AvatarFallback className="bg-slate-100 dark:bg-primary/10 text-primary text-[10px] font-black uppercase">
+                      {profileName?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-white dark:bg-zinc-950 border-slate-200 dark:border-white/10 text-slate-900 dark:text-white">
-                <DropdownMenuLabel className="text-slate-900 dark:text-white">{profileName}</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-slate-200 dark:bg-white/10" />
-                <DropdownMenuItem className="text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-white/10" onClick={() => navigate("/ai-course-creator")}>Create Course</DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-zinc-950 border-slate-200 dark:border-white/10 rounded-2xl p-2 mt-4 shadow-huge">
+                <DropdownMenuLabel className="px-3 py-2">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">{profileName}</p>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Learner Profile</p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-slate-100 dark:bg-white/5" />
+                <DropdownMenuItem className="rounded-xl py-3 px-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer" onClick={() => navigate("/ai-course-creator")}>Create New Course</DropdownMenuItem>
+                <DropdownMenuItem className="rounded-xl py-3 px-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer" onClick={() => navigate("/settings")}>Account Settings</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
       </header>
 
-      <main className={`relative z-10 pt-28 pb-24 px-4 transition-all duration-300 ${isSidebarCollapsed ? "md:ml-16" : "md:ml-64"} md:px-10`}>
+      <main className={cn("relative z-10 pt-28 pb-24 px-6 transition-all duration-300 md:px-12", isSidebarCollapsed ? "md:ml-16" : "md:ml-64")}>
         {renderStats()}
         {renderTabContent()}
       </main>

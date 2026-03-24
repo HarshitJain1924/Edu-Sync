@@ -3,7 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const corsHeaders = {
@@ -118,7 +117,7 @@ IMPORTANT: The correctAnswer must exactly match one of the options in the option
         error: "LLM request failed", 
         details: `Status ${llmRes.status}: ${text.substring(0, 200)}` 
       }), {
-        status: 500,
+        status: llmRes.status,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
@@ -143,54 +142,7 @@ IMPORTANT: The correctAnswer must exactly match one of the options in the option
       });
     }
 
-    // Save quiz to database
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: {
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    });
-
-    const { data: quizSet, error: quizSetError } = await supabase
-      .from("quiz_sets")
-      .insert({
-        title: `Quiz: ${topic.substring(0, 100)}`,
-        description: `AI-generated quiz about ${topic}`,
-        topic: topic.substring(0, 200),
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-    if (quizSetError || !quizSet) {
-      console.error("Error creating quiz set:", quizSetError);
-      return new Response(JSON.stringify({ error: "Failed to save quiz", details: quizSetError?.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
-    }
-
-    // Save questions
-    const questionsToInsert = parsed.questions.map((q: any, index: number) => ({
-      quiz_id: quizSet.id,
-      question: q.question,
-      options: q.options,
-      correct_answer: q.correctAnswer,
-      order_index: index,
-    }));
-
-    const { error: questionsError } = await supabase
-      .from("quiz_questions")
-      .insert(questionsToInsert);
-
-    if (questionsError) {
-      console.error("Error saving questions:", questionsError);
-      // Still return success with questions, even if DB save failed
-    }
-
-    return new Response(JSON.stringify({ 
-      questions: parsed.questions, 
-      quiz_id: quizSet.id 
-    }), {
+    return new Response(JSON.stringify({ questions: parsed.questions }), {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });

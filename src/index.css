@@ -357,7 +357,7 @@ All colors MUST be HSL.
   }
 
   .glass-sidebar {
-    @apply backdrop-blur-2xl bg-card/40 border-l border-white/5;
+    @apply backdrop-blur-2xl bg-white/95 dark:bg-card/40 border-l border-slate-200 dark:border-white/5;
   }
 
   .focus-tint {
@@ -383,13 +383,13 @@ All colors MUST be HSL.
   }
 
   ::-webkit-scrollbar-track {
-    background: #0f172a;
+    background: #e2e8f0;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #1e293b;
+    background: #94a3b8;
     border-radius: 10px;
-    border: 2px solid #0f172a;
+    border: 2px solid #e2e8f0;
   }
 
   ::-webkit-scrollbar-thumb:hover {
@@ -399,6 +399,19 @@ All colors MUST be HSL.
   /* Specific styling for modern browsers */
   * {
     scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e2e8f0;
+  }
+
+  .dark ::-webkit-scrollbar-track {
+    background: #0f172a;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border: 2px solid #0f172a;
+  }
+
+  .dark * {
     scrollbar-color: #1e293b #0f172a;
   }
 

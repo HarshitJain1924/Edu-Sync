@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, Calendar, Clock, Crown, Columns3, Zap, CheckCircle2 } from "lucide-react";
+import { Plus, Users, Calendar, Clock, Crown, Columns3, Zap, CheckCircle2, Handshake, GraduationCap } from "lucide-react";
 import { roomSchema } from "@/lib/validations";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,8 @@ interface StudyRoom {
   max_participants: number;
   created_at: string;
   room_code: string;
+  type: 'teacher' | 'free';
+  scheduled_for: string | null;
   profiles: { username: string };
 }
 
@@ -36,6 +38,7 @@ interface StudySession {
   room_id: string;
   profiles: { username: string };
   study_rooms: { name: string };
+  room_type?: 'teacher' | 'free';
 }
 
 type ViewMode = "rooms" | "kanban";
@@ -69,6 +72,8 @@ const StudyRooms = () => {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
   const [newRoomDescription, setNewRoomDescription] = useState("");
+  const [newRoomType, setNewRoomType] = useState<"teacher" | "free">("teacher");
+  const [newRoomScheduledFor, setNewRoomScheduledFor] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [sessions, setSessions] = useState<StudySession[]>([]);
@@ -98,6 +103,12 @@ const StudyRooms = () => {
 
   const canScheduleSessions = globalRole === "teacher" || globalRole === "admin";
 
+  useEffect(() => {
+    if (!canScheduleSessions && newRoomType === "teacher") {
+      setNewRoomType("free");
+    }
+  }, [canScheduleSessions, newRoomType]);
+
   useEffect(() => { checkUser(); fetchRooms(); fetchSessions(); }, []);
 
   // ─── Data Fetching ─────────────────────────────────────────
@@ -114,21 +125,39 @@ const StudyRooms = () => {
     try {
       const { data, error } = await supabase.from("study_rooms").select(`*, profiles:created_by (username)`).eq("is_active", true).order("created_at", { ascending: false });
       if (error) throw error;
-      setRooms(data || []);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      const filtered = (data || []).filter((r: any) => r.type !== 'free' || r.created_by === user?.id);
+      
+      setRooms(filtered);
     } catch (error: any) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
     finally { setLoading(false); }
   };
 
   const fetchSessions = async () => {
     try {
-      const { data } = await supabase.from("study_sessions").select("id, title, description, start_time, status, teacher_id, room_id").order("start_time", { ascending: false }).limit(30);
-      const teacherIds = Array.from(new Set((data || []).map((s: any) => s.teacher_id).filter(Boolean)));
+      const { data } = await supabase.from("study_sessions").select("id, title, description, start_time, status, teacher_id, room_id").order("start_time", { ascending: false }).limit(100);
+      
       const roomIds = Array.from(new Set((data || []).map((s: any) => s.room_id).filter(Boolean)));
+      let roomMap = new Map<string, any>();
+      if (roomIds.length > 0) { 
+        const { data: roomRows } = await supabase.from("study_rooms").select("id, name, type, created_by").in("id", roomIds); 
+        roomMap = new Map((roomRows || []).map((r: any) => [r.id, r])); 
+      }
+
+      const teacherIds = Array.from(new Set((data || []).map((s: any) => s.teacher_id).filter(Boolean)));
       let teacherNameMap = new Map<string, string>();
-      if (teacherIds.length > 0) { const { data: teachers } = await supabase.from("profiles").select("id, username").in("id", teacherIds); teacherNameMap = new Map((teachers || []).map((t: any) => [t.id, t.username || "Teacher"])); }
-      let roomNameMap = new Map<string, string>();
-      if (roomIds.length > 0) { const { data: roomRows } = await supabase.from("study_rooms").select("id, name").in("id", roomIds); roomNameMap = new Map((roomRows || []).map((r: any) => [r.id, r.name || "Study Room"])); }
-      setSessions((data || []).map((session: any) => ({ ...session, profiles: { username: teacherNameMap.get(session.teacher_id) || "Teacher" }, study_rooms: { name: roomNameMap.get(session.room_id) || "Study Room" } })));
+      if (teacherIds.length > 0) { 
+        const { data: teachers } = await supabase.from("profiles").select("id, username").in("id", teacherIds); 
+        teacherNameMap = new Map((teachers || []).map((t: any) => [t.id, t.username || "Teacher"])); 
+      }
+      
+      setSessions((data || []).map((session: any) => ({ 
+        ...session, 
+        profiles: { username: teacherNameMap.get(session.teacher_id) || "Teacher" }, 
+        study_rooms: { name: roomMap.get(session.room_id)?.name || "Study Room" },
+        room_type: roomMap.get(session.room_id)?.type || 'teacher',
+      })));
     } catch (e) { console.warn("Sessions fetch failed:", e); }
   };
 
@@ -140,11 +169,46 @@ const StudyRooms = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
       await ensureProfileExists(user);
-      const { data: room, error: roomError } = await supabase.from("study_rooms").insert({ name: validated.name, description: validated.description, created_by: user.id, host_id: user.id, room_code: Math.random().toString(36).substring(2, 8).toUpperCase() }).select().single();
+      
+      const { data: room, error: roomError } = await supabase.from("study_rooms").insert({ 
+        name: validated.name, 
+        description: validated.description, 
+        created_by: user.id, 
+        host_id: user.id, 
+        type: newRoomType,
+        scheduled_for: newRoomScheduledFor ? new Date(newRoomScheduledFor).toISOString() : null,
+        is_scheduled: !!newRoomScheduledFor,
+        room_code: Math.random().toString(36).substring(2, 8).toUpperCase() 
+      }).select().single();
+      
       if (roomError) throw roomError;
-      await supabase.from("room_participants").insert({ room_id: room.id, user_id: user.id, role: "teacher", joined_at: new Date().toISOString() });
-      toast({ title: "Room created!", description: `Room code: ${room.room_code}` });
-      setCreateDialogOpen(false); setNewRoomName(""); setNewRoomDescription(""); fetchRooms();
+      
+      await supabase.from("room_participants").insert({ 
+        room_id: room.id, 
+        user_id: user.id, 
+        role: newRoomType === 'teacher' ? 'teacher' : 'student', 
+        joined_at: new Date().toISOString() 
+      });
+
+      if (newRoomScheduledFor) {
+        await supabase.from("study_sessions").insert({
+          title: validated.name,
+          description: validated.description || 'Study Room Session',
+          room_id: room.id,
+          teacher_id: user.id,
+          start_time: new Date(newRoomScheduledFor).toISOString(),
+          status: "scheduled"
+        });
+        fetchSessions();
+      }
+
+      toast({ title: newRoomType === "teacher" ? "Class created!" : "Peer Room created!", description: `Room code: ${room.room_code}` });
+      setCreateDialogOpen(false); 
+      setNewRoomName(""); 
+      setNewRoomDescription(""); 
+      setNewRoomType(canScheduleSessions ? "teacher" : "free");
+      setNewRoomScheduledFor("");
+      fetchRooms();
     } catch (error: any) {
       if (error instanceof z.ZodError) toast({ title: "Validation Error", description: error.errors[0].message, variant: "destructive" });
       else toast({ title: "Error", description: error.message || "Failed to create room.", variant: "destructive" });
@@ -364,9 +428,25 @@ const StudyRooms = () => {
                           <DialogDescription className="text-slate-600 dark:text-[#adaaaa]">Set up a new collaborative workspace</DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleCreateRoom} className="space-y-4">
-                          <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Room Name</Label><Input value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} placeholder="Math Study Session" required className={inputClass} /></div>
+                          <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Room Name</Label><Input value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} placeholder="Data Structures Grind" required className={inputClass} /></div>
                           <div className="space-y-2"><Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Description</Label><Textarea value={newRoomDescription} onChange={(e) => setNewRoomDescription(e.target.value)} placeholder="Let's work together..." className={cn(inputClass, "resize-none")} /></div>
-                          <Button type="submit" className="w-full h-12 rounded-xl font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #cc97ff)" }}>Create Room</Button>
+                          
+                          <div className="space-y-2">
+                            <Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Room Type</Label>
+                            <select value={newRoomType} onChange={(e: any) => setNewRoomType(e.target.value)} className="w-full h-10 rounded-xl p-2 text-slate-900 dark:text-white" style={{ background: CONTAINER_HIGHEST, border: `1px solid ${GHOST_BORDER}` }}>
+                              {canScheduleSessions && <option value="teacher">Teacher Room (Moderated Class)</option>}
+                              <option value="free">Peer Room (Peer-to-Peer Collab)</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-slate-600 dark:text-[#adaaaa] text-xs">Schedule For (Optional)</Label>
+                            <Input type="datetime-local" value={newRoomScheduledFor} onChange={(e) => setNewRoomScheduledFor(e.target.value)} className={inputClass} />
+                          </div>
+                          
+                          <Button type="submit" className="w-full h-12 rounded-xl font-bold text-white border-0 transition-transform hover:scale-[1.02]" style={{ background: newRoomType === 'teacher' ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "linear-gradient(135deg, #06b6d4, #3b82f6)" }}>
+                            {newRoomType === 'teacher' ? "Create Teacher Class" : "Create Peer Room"}
+                          </Button>
                         </form>
                       </DialogContent>
                     </Dialog>
@@ -415,45 +495,66 @@ const StudyRooms = () => {
                 </div>
               ) : (
                 <div className="grid md:grid-cols-2 xl:grid-cols-3" style={{ gap: "1.4rem" }}>
-                  {rooms.map((room) => (
+                  {rooms.map((room) => {
+                    const isFree = room.type === 'free';
+                    const themeColor = isFree ? "#06b6d4" : "#f59e0b";
+                    const themeGradient = isFree ? "linear-gradient(135deg, #06b6d4, #3b82f6)" : "linear-gradient(135deg, #f59e0b, #fbbf24)";
+                    const hoverShadow = isFree ? "0 20px 50px -10px rgba(6,182,212,0.15)" : "0 20px 50px -10px rgba(245,158,11,0.15)";
+                    const hoverBorder = isFree ? "rgba(6,182,212,0.25)" : "rgba(245,158,11,0.25)";
+
+                    return (
                     <div
                       key={room.id}
                       className={cn(glassCard, "overflow-hidden group transition-all duration-300 hover:-translate-y-1.5")}
                       style={{ background: cardBg, ...ghostBorder, transition: "all 0.3s ease" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 20px 50px -10px rgba(6,182,212,0.12)"; e.currentTarget.style.borderColor = "rgba(6,182,212,0.2)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = hoverShadow; e.currentTarget.style.borderColor = hoverBorder; }}
                       onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = GHOST_BORDER; }}
                     >
                       {/* Top accent */}
-                      <div className="h-[2px] w-full opacity-60 group-hover:opacity-100 transition-opacity" style={{ background: "linear-gradient(90deg, #9c48ea, #7c3aed)" }} />
+                      <div className="h-[2px] w-full opacity-60 group-hover:opacity-100 transition-opacity" style={{ background: themeGradient }} />
 
                       <div className="p-7 space-y-5">
                         <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-base font-bold text-slate-900 dark:text-white leading-snug line-clamp-2 group-hover:text-[#4f46e5] dark:group-hover:text-[#a9c4ff] transition-colors" style={{ fontFamily: "Manrope, sans-serif" }}>{room.name}</h3>
-                          <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg" style={{ background: "rgba(16,185,129,0.08)", color: "#10b981", border: "1px solid rgba(16,185,129,0.2)" }}>Active</span>
+                          <h3 className="text-base font-bold text-slate-900 dark:text-white leading-snug line-clamp-2 transition-colors flex items-center gap-2" style={{ fontFamily: "Manrope, sans-serif" }}>
+                            {isFree ? (
+                              <Handshake className="h-4 w-4" style={{ color: themeColor }} />
+                            ) : (
+                              <GraduationCap className="h-4 w-4" style={{ color: themeColor }} />
+                            )}
+                            <span>{room.name}</span>
+                          </h3>
+                          <div className="flex flex-col gap-1 items-end shrink-0">
+                            <span className="text-[9px] font-bold uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg" style={{ background: "rgba(16,185,129,0.08)", color: "#10b981", border: "1px solid rgba(16,185,129,0.2)" }}>Active</span>
+                            {isFree && <span className="text-[9px] font-bold uppercase tracking-[0.1em] px-2 py-0.5 rounded border border-cyan-500/20 text-cyan-500 bg-cyan-500/10">Peer Room</span>}
+                          </div>
                         </div>
 
                         <p className="text-sm text-slate-600 dark:text-[#adaaaa] line-clamp-2 leading-relaxed min-h-[2.5rem]">{room.description || "No description provided."}</p>
 
                         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-[#71717a]">
                           <div className="flex items-center gap-2">
-                            <Users className="h-3.5 w-3.5" style={{ color: "#9c48ea" }} />
+                            <Users className="h-3.5 w-3.5" style={{ color: themeColor }} />
                             <span>{room.profiles?.username || "Unknown"}</span>
                           </div>
-                          <span>{new Date(room.created_at).toLocaleDateString()}</span>
+                          <span className={isFree && room.scheduled_for ? "text-cyan-600 dark:text-cyan-400 font-bold" : ""}>
+                            {room.scheduled_for
+                              ? `Starts ${new Date(room.scheduled_for).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+                              : new Date(room.created_at).toLocaleDateString()}
+                          </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-3 pt-1">
                           <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: isDarkMode ? "rgba(0,0,0,0.3)" : "rgba(148,163,184,0.16)", border: `1px solid ${GHOST_BORDER}` }}>
                             <span className="text-[9px] font-mono uppercase text-slate-500 dark:text-[#71717a]">Code</span>
-                            <span className="text-sm font-bold tracking-[0.2em]" style={{ color: "#d8b4fe" }}>{room.room_code || "---"}</span>
+                            <span className="text-sm font-bold tracking-[0.2em]" style={{ color: themeColor }}>{room.room_code || "---"}</span>
                           </div>
-                          <Button className="h-10 rounded-xl px-6 font-bold text-white border-0" style={{ background: "linear-gradient(135deg, #9c48ea, #7c3aed)", boxShadow: "0 6px 20px -5px rgba(156,72,234,0.35)" }} onClick={() => handleJoinRoom(room.id)}>
+                          <Button className="h-10 rounded-xl px-6 font-bold text-white border-0 transition-transform hover:scale-105" style={{ background: themeGradient, boxShadow: `0 6px 20px -5px ${themeColor}60` }} onClick={() => handleJoinRoom(room.id)}>
                             Join
                           </Button>
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
 
@@ -474,10 +575,17 @@ const StudyRooms = () => {
                             <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded-lg" style={{ background: "rgba(156,72,234,0.08)", color: "#cc97ff", border: "1px solid rgba(156,72,234,0.2)" }}>{session.status}</span>
                           </div>
                           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-[#71717a]">
-                            <Crown className="h-3 w-3" style={{ color: "#f59e0b" }} />
+                            {session.room_type === 'free' ? (
+                              <Handshake className="h-3 w-3" style={{ color: "#06b6d4" }} />
+                            ) : (
+                              <Crown className="h-3 w-3" style={{ color: "#f59e0b" }} />
+                            )}
                             <span>{session.profiles?.username}</span>
                             <span className="text-[#494847]">•</span>
                             <span>{session.study_rooms?.name}</span>
+                            {session.room_type === 'free' && (
+                              <span className="text-[9px] font-bold uppercase tracking-[0.1em] px-2 py-0.5 rounded border border-cyan-500/20 text-cyan-500 bg-cyan-500/10">Peer</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 text-xs" style={{ color: "#cc97ff" }}>
                             <Clock className="h-3 w-3" />
@@ -551,8 +659,15 @@ const StudyRooms = () => {
                               {session.title}
                             </h4>
                             <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-[#71717a]">
-                              <Crown className="h-3 w-3" style={{ color: "#f59e0b" }} />
+                              {session.room_type === 'free' ? (
+                                <Handshake className="h-3 w-3" style={{ color: "#06b6d4" }} />
+                              ) : (
+                                <Crown className="h-3 w-3" style={{ color: "#f59e0b" }} />
+                              )}
                               <span>{session.profiles?.username}</span>
+                              {session.room_type === 'free' && (
+                                <span className="text-[9px] font-bold uppercase tracking-[0.1em] px-1.5 py-0.5 rounded border border-cyan-500/20 text-cyan-500 bg-cyan-500/10">Peer</span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-[#71717a]">
                               <Users className="h-3 w-3 opacity-60" />

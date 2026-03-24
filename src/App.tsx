@@ -44,6 +44,7 @@ const PlacementPrep = lazy(() => import("./pages/PlacementPrep"));
 const JobUpdates = lazy(() => import("./pages/JobUpdates"));
 const JobDetail = lazy(() => import("./pages/JobDetail"));
 const ResumeBuilder = lazy(() => import("./pages/ResumeBuilder"));
+const NotesLibrary = lazy(() => import("./pages/NotesLibrary"));
 const SupabaseStatus = lazy(() => import("./pages/dev/SupabaseStatus"));
 
 function ScrollToHash() {
@@ -152,6 +153,7 @@ const App = () => (
             <Route path="/jobs" element={<JobUpdates />} />
             <Route path="/jobs/:jobId" element={<JobDetail />} />
             <Route path="/resume-builder" element={<ResumeBuilder />} />
+            <Route path="/notes" element={<NotesLibrary />} />
             <Route path="/video-library" element={<Navigate to="/videos" replace />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

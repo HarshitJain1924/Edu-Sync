@@ -188,13 +188,13 @@ const VideoLibrary = () => {
   const formatViews = (n: number) => n >= 1000000 ? `${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : `${n}`;
 
   const difficultyStyle: Record<string, string> = {
-    beginner: "text-emerald-300 bg-emerald-500/10 border-emerald-500/20",
-    intermediate: "text-amber-300 bg-amber-500/10 border-amber-500/20",
-    advanced: "text-rose-300 bg-rose-500/10 border-rose-500/20",
+    beginner: "text-emerald-700 bg-emerald-100 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/20",
+    intermediate: "text-amber-700 bg-amber-100 border-amber-200 dark:text-amber-300 dark:bg-amber-500/10 dark:border-amber-500/20",
+    advanced: "text-rose-700 bg-rose-100 border-rose-200 dark:text-rose-300 dark:bg-rose-500/10 dark:border-rose-500/20",
   };
 
   const uniqueTopics = Array.from(new Set(videos.map((v) => v.topic)));
-  const glass = "rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-white/[0.06]";
+  const glass = "rounded-2xl bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200 dark:border-white/[0.06]";
 
   if (loading) {
     return (
@@ -229,7 +229,7 @@ const VideoLibrary = () => {
           <div className="absolute top-[35%] left-[20%] h-[35%] w-[35%] bg-violet-500/5 blur-[130px]" />
         </div>
 
-        <div className="relative z-10 min-h-screen p-8 md:p-10" style={{ background: "#0f0f0f" }}>
+        <div className="relative z-10 min-h-screen p-8 md:p-10 bg-slate-100 dark:bg-[#0f0f0f] transition-colors duration-500">
           {/* Header */}
           <header className="mb-8 flex flex-col md:flex-row md:items-start justify-between gap-6">
             <div>
@@ -237,7 +237,7 @@ const VideoLibrary = () => {
                 <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 border border-white/10">
                   <Video className="h-6 w-6 text-violet-300" />
                 </div>
-                <h1 className="text-4xl font-extrabold text-white tracking-tight">Video Learning</h1>
+                <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">Video Learning</h1>
               </div>
               <p className="text-slate-600 dark:text-zinc-400 text-base max-w-lg">
                 Explore educational videos and enhance your learning journey with curated content.
@@ -245,14 +245,14 @@ const VideoLibrary = () => {
             </div>
 
             {/* Mode Toggle Dock */}
-            <div className="inline-flex p-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] shadow-[0_8px_30px_-5px_rgba(0,0,0,0.5)] shrink-0">
+            <div className="inline-flex p-1.5 rounded-full bg-white/70 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.06] shadow-[0_8px_30px_-5px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_30px_-5px_rgba(0,0,0,0.5)] shrink-0">
               <button
                 onClick={() => switchSearchMode('library')}
                 className={cn(
                   "flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all duration-300",
                   searchMode === 'library'
-                    ? "bg-white/10 text-white border border-white/15 shadow-[0_0_20px_rgba(139,92,246,0.15)]"
-                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                    ? "bg-violet-100 dark:bg-white/10 text-slate-900 dark:text-white border border-violet-200 dark:border-white/15 shadow-[0_0_20px_rgba(139,92,246,0.15)]"
+                    : "text-slate-600 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-zinc-300 border border-transparent"
                 )}
               >
                 <Tag className="h-4 w-4" />
@@ -263,8 +263,8 @@ const VideoLibrary = () => {
                 className={cn(
                   "flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all duration-300",
                   searchMode === 'youtube'
-                    ? "bg-white/10 text-white border border-white/15 shadow-[0_0_20px_rgba(139,92,246,0.15)]"
-                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                    ? "bg-violet-100 dark:bg-white/10 text-slate-900 dark:text-white border border-violet-200 dark:border-white/15 shadow-[0_0_20px_rgba(139,92,246,0.15)]"
+                    : "text-slate-600 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-zinc-300 border border-transparent"
                 )}
               >
                 <Play className="h-4 w-4" />
@@ -290,7 +290,7 @@ const VideoLibrary = () => {
                 </Button>
               )}
               {searchMode === 'youtube' && (
-                <Button variant="ghost" size="sm" onClick={handleYoutubeSearch} disabled={isSearching} className="absolute right-2 top-1/2 -translate-y-1/2 h-8 text-violet-400 hover:bg-violet-500/10 rounded-lg font-bold text-xs">
+                <Button variant="ghost" size="sm" onClick={handleYoutubeSearch} disabled={isSearching} className="absolute right-2 top-1/2 -translate-y-1/2 h-8 text-violet-700 dark:text-violet-400 hover:bg-violet-500/10 rounded-lg font-bold text-xs">
                   {isSearching ? "..." : "Search"}
                 </Button>
               )}
@@ -299,19 +299,19 @@ const VideoLibrary = () => {
             {searchMode === 'library' && (
               <>
                 <Select value={topicFilter} onValueChange={setTopicFilter}>
-                  <SelectTrigger className="w-full md:w-[180px] h-12 bg-white/[0.03] border-white/[0.06] text-white rounded-xl">
+                  <SelectTrigger className="w-full md:w-[180px] h-12 bg-white/80 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06] text-slate-900 dark:text-white rounded-xl">
                     <SelectValue placeholder="Topic" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#151320] border-white/10 text-white rounded-xl">
+                  <SelectContent className="bg-white dark:bg-[#151320] border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl">
                     <SelectItem value="all">All Topics</SelectItem>
                     {uniqueTopics.map((topic) => (<SelectItem key={topic} value={topic}>{topic}</SelectItem>))}
                   </SelectContent>
                 </Select>
                 <Select value={difficultyFilter} onValueChange={setDifficultyFilter}>
-                  <SelectTrigger className="w-full md:w-[180px] h-12 bg-white/[0.03] border-white/[0.06] text-white rounded-xl">
+                  <SelectTrigger className="w-full md:w-[180px] h-12 bg-white/80 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06] text-slate-900 dark:text-white rounded-xl">
                     <SelectValue placeholder="Difficulty" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#151320] border-white/10 text-white rounded-xl">
+                  <SelectContent className="bg-white dark:bg-[#151320] border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl">
                     <SelectItem value="all">All Levels</SelectItem>
                     <SelectItem value="beginner">Beginner</SelectItem>
                     <SelectItem value="intermediate">Intermediate</SelectItem>
@@ -324,19 +324,19 @@ const VideoLibrary = () => {
 
           {/* Active Filter Info */}
           <div className="mb-6 flex items-center gap-3">
-            <span className={cn("text-[9px] font-bold uppercase tracking-[0.15em] px-3 py-1.5 rounded-lg border", searchMode === 'youtube' ? "bg-violet-500/10 text-violet-300 border-violet-500/20" : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20")}>
+            <span className={cn("text-[9px] font-bold uppercase tracking-[0.15em] px-3 py-1.5 rounded-lg border", searchMode === 'youtube' ? "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/20" : "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/20")}>
               {searchMode === 'youtube' ? 'YouTube Active' : 'Library Active'}
             </span>
             <span className="text-xs text-slate-600 dark:text-zinc-500 font-medium">{filteredVideos.length} results</span>
           </div>
 
           {searchMode === 'youtube' && youtubeError && (
-            <div className="mb-6 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-300">{youtubeError}</div>
+            <div className="mb-6 rounded-2xl border border-rose-200 dark:border-rose-500/20 bg-rose-50 dark:bg-rose-500/5 p-4 text-sm text-rose-700 dark:text-rose-300">{youtubeError}</div>
           )}
 
           {/* Video Grid */}
           {filteredVideos.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-16 text-center">
+            <div className="rounded-3xl border border-dashed border-slate-300 dark:border-white/10 bg-white/70 dark:bg-white/[0.02] p-16 text-center">
               <Play className="h-10 w-10 text-slate-400 dark:text-zinc-600 mx-auto mb-4" />
               <p className="text-slate-600 dark:text-zinc-400 font-semibold mb-1">
                 {searchMode === 'youtube' ? "No YouTube results yet" : "No videos found"}
@@ -350,7 +350,7 @@ const VideoLibrary = () => {
               {filteredVideos.map((video, i) => (
                 <div
                   key={video.id}
-                  className={cn(glass, "overflow-hidden cursor-pointer group transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_20px_50px_-10px_rgba(139,92,246,0.2)] hover:border-white/10")}
+                  className={cn(glass, "overflow-hidden cursor-pointer group transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_20px_50px_-10px_rgba(139,92,246,0.2)] hover:border-violet-200 dark:hover:border-white/10")}
                   onClick={() => navigate(`/video/${video.id}`)}
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
@@ -375,26 +375,26 @@ const VideoLibrary = () => {
 
                   {/* Content */}
                   <div className="p-5 space-y-3">
-                    <h3 className="font-bold text-[15px] text-white line-clamp-2 leading-snug group-hover:text-violet-100 transition-colors">
+                    <h3 className="font-bold text-[15px] text-slate-900 dark:text-white line-clamp-2 leading-snug group-hover:text-violet-700 dark:group-hover:text-violet-100 transition-colors">
                       {video.title}
                     </h3>
-                    <p className="text-xs text-slate-600 dark:text-zinc-500 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-slate-600 dark:text-zinc-400 line-clamp-2 leading-relaxed">
                       {video.description}
                     </p>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={cn("text-[9px] font-bold uppercase tracking-[0.12em] px-2 py-1 rounded-md border", difficultyStyle[video.difficulty] || "text-zinc-400 bg-white/5 border-white/10")}>
                         {video.difficulty}
                       </span>
-                      <span className="text-[9px] font-bold uppercase tracking-[0.12em] px-2 py-1 rounded-md border text-zinc-300 bg-white/[0.03] border-white/[0.06]">
+                      <span className="text-[9px] font-bold uppercase tracking-[0.12em] px-2 py-1 rounded-md border text-slate-700 dark:text-zinc-300 bg-slate-100 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
                         {video.topic}
                       </span>
                     </div>
                     <div className="flex items-center justify-between pt-1">
-                      <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+                      <span className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-zinc-500">
                         <Eye className="h-3 w-3" />
                         {formatViews(video.views_count)} views
                       </span>
-                      <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500 group-hover:text-violet-300 transition-colors">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 dark:text-zinc-500 group-hover:text-violet-700 dark:group-hover:text-violet-300 transition-colors">
                         Watch →
                       </span>
                     </div>

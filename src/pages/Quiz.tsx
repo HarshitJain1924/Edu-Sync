@@ -30,6 +30,8 @@ interface QuizSet {
   title: string;
   description: string | null;
   topic: string;
+  created_by: string;
+  teacher_name?: string;
 }
 
 interface Flashcard {
@@ -53,6 +55,42 @@ type GeneratedQuestion = {
   question: string;
   options: string[];
   correctAnswer: string;
+};
+
+const MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const extractGeminiText = (response: any): string => {
+  if (response && typeof response.text === "function") return response.text();
+  if (response && typeof response.text === "string") return response.text;
+  if (response?.candidates?.[0]?.content?.parts?.[0]?.text) return response.candidates[0].content.parts[0].text;
+  throw new Error("Unable to extract text from Gemini response");
+};
+
+const callGeminiWithRetry = async (ai: InstanceType<typeof GoogleGenAI>, prompt: string): Promise<string> => {
+  for (const model of MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await ai.models.generateContent({ model, contents: prompt });
+        const response = (result as any).response || result;
+        return extractGeminiText(response);
+      } catch (err: any) {
+        const msg = err?.message || "";
+        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
+          const delayMatch = msg.match(/retry\s+in\s+([\d.]+)/i) || msg.match(/retryDelay.*?(\d+)/);
+          const waitSecs = delayMatch ? Math.ceil(parseFloat(delayMatch[1])) + 2 : 35;
+          if (attempt === 0) {
+            await sleep(waitSecs * 1000);
+            continue;
+          }
+          break;
+        }
+        throw err;
+      }
+    }
+  }
+  throw new Error("All AI models are rate-limited. Please retry in 1-2 minutes.");
 };
 
 const QUICK_AI_TOPICS = [
@@ -132,13 +170,72 @@ const Quiz = () => {
   // ─── Quiz Logic ────────────────────────────────────────────────
   const fetchQuizSets = async () => {
     try {
-      const { data, error } = await supabase.from("quiz_sets").select("*").order("created_at", { ascending: false });
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData.user;
+      if (!user) {
+        setQuizSets([]);
+        return;
+      }
+
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const currentRole = roleData?.role || "student";
+
+      let teacherIdsForStudent: string[] = [];
+      if (currentRole === "student") {
+        const { data: assignments } = await supabase
+          .from("teacher_student_assignments" as any)
+          .select("teacher_id")
+          .eq("student_id", user.id);
+        teacherIdsForStudent = (assignments || []).map((a: any) => a.teacher_id);
+      }
+
+      let query = supabase
+        .from("quiz_sets")
+        .select("id, title, description, topic, created_by, created_at")
+        .order("created_at", { ascending: false });
+
+      if (currentRole === "teacher") {
+        query = query.eq("created_by", user.id);
+      }
+
+      if (currentRole === "student") {
+        if (teacherIdsForStudent.length === 0) {
+          setQuizSets([]);
+          return;
+        }
+        query = query.in("created_by", teacherIdsForStudent);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       const sets = data || [];
       if (sets.length === 0) { setQuizSets([]); return; }
+
+      const teacherIds = Array.from(new Set(sets.map((s: any) => s.created_by).filter(Boolean)));
+      let teacherNameMap = new Map<string, string>();
+      if (teacherIds.length > 0) {
+        const { data: teacherProfiles } = await supabase
+          .from("profiles")
+          .select("id, username")
+          .in("id", teacherIds);
+        teacherNameMap = new Map((teacherProfiles || []).map((p: any) => [p.id, p.username || "Teacher"]));
+      }
+
       const { data: linkedQuestions } = await supabase.from("quiz_questions").select("quiz_id").in("quiz_id", sets.map((s) => s.id));
       const validSetIds = new Set((linkedQuestions || []).map((q) => q.quiz_id));
-      setQuizSets(sets.filter((s) => validSetIds.has(s.id)));
+      setQuizSets(
+        sets
+          .filter((s) => validSetIds.has(s.id))
+          .map((s: any) => ({
+            ...s,
+            teacher_name: teacherNameMap.get(s.created_by) || "Teacher",
+          }))
+      );
     } catch { toast({ title: "Error", description: "Failed to load quiz sets", variant: "destructive" }); }
     finally { setLoading(false); }
   };
@@ -160,40 +257,46 @@ const Quiz = () => {
   const generateAiQuiz = async (topicOverride?: string) => {
     const topic = (topicOverride ?? aiTopic).trim();
     if (!topic) { toast({ title: "Missing topic", description: "Enter a topic.", variant: "destructive" }); return; }
+    let createdQuizSetId: string | null = null;
     try {
       setAiLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Sign in first.");
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Sign in first.");
-      let generatedQuestions: GeneratedQuestion[] = [];
-      try {
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-quiz`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ topic, numQuestions: 10 }) });
-        const payload = await res.json();
-        if (!res.ok) throw new Error(payload?.error || "Failed");
-        generatedQuestions = (payload?.questions || []) as GeneratedQuestion[];
-      } catch {
-        const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!geminiKey) throw new Error("AI unavailable.");
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const prompt = `Generate 10 placement-focused MCQs on "${topic}". Return ONLY valid JSON: [{"question":"...","options":["A","B","C","D"],"correctAnswer":"exact option"}]. No markdown.`;
-        const result = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt });
-        const raw = (result as any).text || result?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        const clean = String(raw).replace(/```json/g, "").replace(/```/g, "").trim();
-        const match = clean.match(/\[[\s\S]*\]/);
-        if (!match) throw new Error("Invalid AI response.");
-        generatedQuestions = JSON.parse(match[0]) as GeneratedQuestion[];
-      }
+      const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!geminiKey) throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY.");
+
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const prompt = `Generate 10 placement-focused MCQs on "${topic}".
+
+Each question must include:
+- "question": string
+- "options": array of exactly 4 options
+- "correctAnswer": exact text matching one option
+
+Return ONLY a valid JSON array of question objects. No markdown.`;
+
+      const raw = await callGeminiWithRetry(ai, prompt);
+      const clean = String(raw).replace(/```json/g, "").replace(/```/g, "").trim();
+      const match = clean.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error("Invalid AI response format.");
+      const generatedQuestions = JSON.parse(match[0]) as GeneratedQuestion[];
+
       if (!generatedQuestions.length) throw new Error("No questions generated.");
-      const { data: quizSet, error: quizError } = await supabase.from("quiz_sets").insert({ title: `${topic} - AI Practice`, description: "Student-generated with AI", topic, created_by: user.id }).select("id, title, description, topic").single();
+      const { data: quizSet, error: quizError } = await supabase.from("quiz_sets").insert({ title: `${topic} - AI Practice`, description: "AI-generated by teacher", topic, created_by: user.id }).select("id, title, description, topic, created_by").single();
       if (quizError) throw quizError;
+      createdQuizSetId = quizSet.id;
       const inserts = generatedQuestions.map((q, idx) => ({ quiz_id: quizSet.id, question: q.question, options: q.options, correct_answer: q.correctAnswer, order_index: idx }));
       const { error: insertError } = await supabase.from("quiz_questions").insert(inserts);
       if (insertError) { await supabase.from("quiz_sets").delete().eq("id", quizSet.id); throw insertError; }
-      setQuizSets((prev) => [quizSet, ...prev]); setAiTopic("");
+      setQuizSets((prev) => [{ ...quizSet, teacher_name: "You" }, ...prev]); setAiTopic("");
       toast({ title: "AI quiz ready", description: `Generated ${generatedQuestions.length} questions on ${topic}.` });
       handleSetSelect(quizSet);
-    } catch (error: any) { toast({ title: "Generation failed", description: error?.message || "Could not generate.", variant: "destructive" }); }
+    } catch (error: any) {
+      if (createdQuizSetId) {
+        await supabase.from("quiz_sets").delete().eq("id", createdQuizSetId);
+      }
+      toast({ title: "Generation failed", description: error?.message || "Could not generate.", variant: "destructive" });
+    }
     finally { setAiLoading(false); }
   };
 
@@ -204,8 +307,51 @@ const Quiz = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !selectedSet) return;
       const scorePercentage = Math.round((correctAnswers / questions.length) * 100);
-      await supabase.from("user_progress").upsert({ user_id: user.id, content_type: "quiz_set", content_id: selectedSet.id, progress_data: { score: scorePercentage, correct_answers: correctAnswers, total_questions: questions.length, time_taken: timer, completed_at: new Date().toISOString(), quiz_title: selectedSet.title, quiz_topic: selectedSet.topic }, updated_at: new Date().toISOString() }, { onConflict: "user_id,content_type,content_id" });
-    } catch {}
+      const payload = {
+        user_id: user.id,
+        content_type: "quiz_set",
+        content_id: selectedSet.id,
+        progress_data: {
+          score: scorePercentage,
+          correct_answers: correctAnswers,
+          total_questions: questions.length,
+          time_taken: timer,
+          completed_at: new Date().toISOString(),
+          quiz_title: selectedSet.title,
+          quiz_topic: selectedSet.topic,
+        },
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: existing, error: existingError } = await supabase
+        .from("user_progress")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("content_type", "quiz_set")
+        .eq("content_id", selectedSet.id)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+
+      if (existing?.id) {
+        const { error: updateError } = await supabase
+          .from("user_progress")
+          .update(payload)
+          .eq("id", existing.id);
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from("user_progress")
+          .insert(payload);
+        if (insertError) throw insertError;
+      }
+    } catch (error: any) {
+      toast({
+        title: "Score not saved",
+        description: error?.message || "Could not save quiz result to progress.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleNext = () => { if (currentIndex < questions.length - 1) { setCurrentIndex(currentIndex + 1); setSelectedAnswer(null); setShowFeedback(false); } else { setShowResults(true); saveQuizResults(); } };
@@ -325,6 +471,7 @@ const Quiz = () => {
             <div className={`${glass} mb-6 p-8`}>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-violet-500/10 text-violet-300 text-[10px] font-bold tracking-[0.18em] uppercase mb-4 border border-violet-500/20">Question {currentIndex + 1}</div>
               <h2 className="text-xl font-bold text-white leading-relaxed mb-6">{currentQuestion.question}</h2>
+              <p className="text-xs text-zinc-500 mb-4">Created by {selectedSet.teacher_name || "Teacher"}</p>
               <div className="space-y-3">
                 {currentQuestion.options.map((option, index) => {
                   const isSelected = selectedAnswer === option;
@@ -549,26 +696,28 @@ const Quiz = () => {
           {hubMode === "quiz" && (
             <div className="space-y-8 animate-in fade-in duration-300">
               {/* AI Generator */}
-              <div className={`${glass} p-8`}>
-                <div className="flex items-center gap-2 mb-4">
-                  <Sparkles className="h-5 w-5 text-violet-300" />
-                  <h2 className="text-lg font-bold text-white">Generate AI Quiz</h2>
+              {isTeacher && (
+                <div className={`${glass} p-8`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="h-5 w-5 text-violet-300" />
+                    <h2 className="text-lg font-bold text-white">Generate AI Quiz</h2>
+                  </div>
+                  <p className="text-xs text-zinc-500 mb-5">Generate quizzes your assigned students will see in their quiz hub.</p>
+                  <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                    <Input value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} placeholder="e.g. DBMS Joins, OS Scheduling, DSA Arrays" className="bg-white/[0.03] border-white/[0.06] text-white placeholder:text-zinc-600 rounded-xl flex-1" />
+                    <Button onClick={() => generateAiQuiz()} disabled={aiLoading || !aiTopic.trim()} className="bg-gradient-to-r from-violet-500 to-indigo-500 text-white rounded-xl font-bold hover:opacity-90 min-w-[180px] shadow-[0_8px_25px_-5px_rgba(139,92,246,0.3)]">
+                      <Brain className="mr-2 h-4 w-4" />{aiLoading ? "Generating..." : "Generate AI Quiz"}
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK_AI_TOPICS.map((topic) => (
+                      <button key={topic} onClick={() => generateAiQuiz(topic)} disabled={aiLoading} className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.05] hover:border-white/10 transition-all">
+                        {topic}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <p className="text-xs text-zinc-500 mb-5">Enter any placement topic and instantly create a personalized quiz set.</p>
-                <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                  <Input value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} placeholder="e.g. DBMS Joins, OS Scheduling, DSA Arrays" className="bg-white/[0.03] border-white/[0.06] text-white placeholder:text-zinc-600 rounded-xl flex-1" />
-                  <Button onClick={() => generateAiQuiz()} disabled={aiLoading || !aiTopic.trim()} className="bg-gradient-to-r from-violet-500 to-indigo-500 text-white rounded-xl font-bold hover:opacity-90 min-w-[180px] shadow-[0_8px_25px_-5px_rgba(139,92,246,0.3)]">
-                    <Brain className="mr-2 h-4 w-4" />{aiLoading ? "Generating..." : "Generate AI Quiz"}
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {QUICK_AI_TOPICS.map((topic) => (
-                    <button key={topic} onClick={() => generateAiQuiz(topic)} disabled={aiLoading} className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.05] hover:border-white/10 transition-all">
-                      {topic}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
 
               {/* Quiz Sets Grid */}
               {quizSets.length === 0 ? (
@@ -592,6 +741,7 @@ const Quiz = () => {
                         <div>
                           <h3 className="text-[15px] font-bold text-white leading-snug line-clamp-2 mb-1.5 group-hover:text-violet-100 transition-colors">{set.title}</h3>
                           <p className="text-xs text-zinc-500 line-clamp-2">{set.description || "Challenge yourself with these curated questions."}</p>
+                          <p className="text-[10px] text-zinc-500 mt-2 uppercase tracking-wider">Teacher: {set.teacher_name || "Teacher"}</p>
                         </div>
                         <span className="inline-block text-[9px] font-bold uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg bg-violet-500/10 text-violet-300 border border-violet-500/20">{set.topic}</span>
                       </div>

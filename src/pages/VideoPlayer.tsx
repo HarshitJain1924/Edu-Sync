@@ -968,58 +968,61 @@ const VideoPlayer = () => {
   }
 
   return (
-    <div className={cn("min-h-screen bg-background transition-colors duration-700", isFocusMode && "bg-black/95")}>
+    <div className={cn("min-h-screen bg-slate-100 dark:bg-background text-slate-900 dark:text-white transition-colors duration-700", isFocusMode && "bg-black/95 text-white")}>
       
       {isFocusMode && <div className="focus-tint" />}
 
       {/* Header */}
       <header className={cn(
-          "sticky top-0 z-[50] w-full border-b border-white/5 backdrop-blur-xl shrink-0 transition-opacity duration-500",
+          "sticky top-0 z-[50] w-full border-b border-slate-200 dark:border-white/5 bg-slate-50/90 dark:bg-black/40 backdrop-blur-xl shrink-0 transition-all duration-500",
           isFocusMode && "opacity-20 hover:opacity-100"
       )}>
         <div className="max-w-7xl mx-auto px-6 flex h-16 items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/videos")} className="rounded-full hover:bg-white/5">
+            <Button variant="ghost" size="icon" onClick={() => navigate("/videos")} className="rounded-full hover:bg-slate-200 dark:hover:bg-white/10 text-slate-600 dark:text-white">
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h2 className="text-lg font-bold leading-none truncate max-w-[200px] md:max-w-md">{video.title}</h2>
-              <div className="text-xs text-muted-foreground mt-1 tracking-wide flex items-center gap-2">
-                  <Badge variant="outline" className="text-[9px] h-4 py-0">{video.topic}</Badge>
-                  <span>{video.difficulty}</span>
-                  {isPlayerReady && <Badge variant="outline" className="text-[9px] h-4 border-green-500/30 text-green-500 bg-green-500/5">Live Sync</Badge>}
+              <h2 className="text-lg font-bold leading-none truncate max-w-[200px] md:max-w-md tracking-tight">{video.title}</h2>
+                <div className="text-xs text-slate-500 dark:text-muted-foreground mt-1 tracking-wide flex items-center gap-2">
+                  <Badge variant="outline" className="text-[9px] h-4 py-0 bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/20 text-slate-600 dark:text-zinc-200 select-none">{video.topic}</Badge>
+                  <span className="text-slate-500 dark:text-zinc-400 font-medium">{video.difficulty}</span>
+                  {isPlayerReady && <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">Live Sync</Badge>}
               </div>
             </div>
           </div>
           
           <div className="flex items-center gap-6">
             <div className="hidden md:flex flex-col items-end gap-1 w-48">
-                <div className="flex justify-between w-full text-[10px] font-bold tracking-tighter uppercase text-muted-foreground">
+                <div className="flex justify-between w-full text-[10px] font-bold tracking-tighter uppercase text-slate-500 dark:text-muted-foreground">
                     <span>Study Session</span>
                     <span className="text-primary">{Math.round(progress)}%</span>
                 </div>
-                <Progress value={progress} className="h-1.5 w-full bg-white/5" />
+                <Progress value={progress} className="h-2 w-full bg-slate-200 dark:bg-white/5 [&>div]:bg-violet-500 dark:[&>div]:bg-primary" />
             </div>
             <Button
               variant={interaction.saved ? "primary" : "outline"}
               size="sm"
               onClick={handleSave}
               className={cn(
-                "gap-2 rounded-full px-4 h-9",
-                interaction.saved && "shadow-glow"
+                "gap-2 rounded-full px-4 h-9 border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-zinc-900/50 text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-800 transition-all shadow-sm",
+                interaction.saved && "shadow-glow bg-primary/10 text-primary border-primary/30"
               )}
             >
-              <Bookmark className={cn("h-4 w-4", interaction.saved && "fill-current")} />
-              <span className="text-xs font-bold uppercase tracking-wider">{interaction.saved ? "Bookmarked" : "Bookmark"}</span>
+              <Bookmark className={cn("h-4 w-4", interaction.saved && "fill-current text-primary")} />
+              <span className="text-[10px] font-bold uppercase tracking-wider">{interaction.saved ? "Bookmarked" : "Bookmark"}</span>
             </Button>
             <Button 
                 variant={isFocusMode ? "primary" : "outline"} 
                 size="sm" 
                 onClick={() => setIsFocusMode(!isFocusMode)}
-                className={cn("gap-2 rounded-full px-4 h-9", isFocusMode && "bg-primary shadow-glow")}
+                className={cn(
+                  "gap-2 rounded-full px-4 h-9 border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-zinc-900/50 text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-800 transition-all shadow-sm", 
+                  isFocusMode && "bg-primary text-primary-foreground border-primary shadow-glow ring-2 ring-primary/20"
+                )}
             >
                 {isFocusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                <span className="text-xs font-bold uppercase tracking-wider">{isFocusMode ? "Exit Focus" : "Focus Mode"}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{isFocusMode ? "Exit Focus" : "Focus Mode"}</span>
             </Button>
           </div>
         </div>
@@ -1034,7 +1037,7 @@ const VideoPlayer = () => {
           <div className="lg:col-span-8 space-y-6 overflow-y-auto pr-2 custom-scrollbar no-scrollbar-md">
             
             <div className={cn(
-                "group relative border border-white/5 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500",
+              "group relative border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500",
                 isFocusMode ? "study-spotlight scale-[1.01]" : "bg-black"
             )}>
               <div className="aspect-video bg-black relative">
@@ -1099,19 +1102,19 @@ const VideoPlayer = () => {
                             <p className="text-muted-foreground text-sm">Paused at {formatTime(currentTime)}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-white/5 border-white/10 hover:bg-primary/10 hover:border-primary/30" onClick={() => { handleSendMessage(`Can you explain what's happening at ${formatTime(currentTime)} in this video?`); playerRef.current?.playVideo(); }}>
+                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-black/40 border-white/20 text-white hover:bg-primary/15 hover:border-primary/40 hover:text-white" onClick={() => { handleSendMessage(`Can you explain what's happening at ${formatTime(currentTime)} in this video?`); playerRef.current?.playVideo(); }}>
                                 <Bot className="h-6 w-6 text-primary" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Explain moment</span>
                             </Button>
-                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-white/5 border-white/10 hover:bg-primary/10 hover:border-primary/30" onClick={() => { handleAddNote("Key Insight from pause", currentTime); playerRef.current?.playVideo(); }}>
+                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-black/40 border-white/20 text-white hover:bg-primary/15 hover:border-primary/40 hover:text-white" onClick={() => { handleAddNote("Key Insight from pause", currentTime); playerRef.current?.playVideo(); }}>
                                 <Zap className="h-6 w-6 text-yellow-500" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Capture Insight</span>
                             </Button>
-                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-white/5 border-white/10 hover:bg-primary/10 hover:border-primary/30" onClick={() => { handleSendMessage(`Provide a technical deep dive into the current topic.`); playerRef.current?.playVideo(); }}>
+                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-black/40 border-white/20 text-white hover:bg-primary/15 hover:border-primary/40 hover:text-white" onClick={() => { handleSendMessage(`Provide a technical deep dive into the current topic.`); playerRef.current?.playVideo(); }}>
                                 <Layers className="h-6 w-6 text-purple-500" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Deep Dive</span>
                             </Button>
-                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-white/5 border-white/10 hover:bg-primary/10 hover:border-primary/30" onClick={() => playerRef.current?.playVideo()}>
+                            <Button variant="outline" className="h-24 flex-col gap-2 rounded-2xl bg-black/40 border-white/20 text-white hover:bg-primary/15 hover:border-primary/40 hover:text-white" onClick={() => playerRef.current?.playVideo()}>
                                 <Play className="h-6 w-6 text-white" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Resume</span>
                             </Button>
@@ -1121,33 +1124,33 @@ const VideoPlayer = () => {
               </div>
 
               {/* Progress & Timestamp Timeline */}
-              <div className="px-6 py-4 bg-black/40 backdrop-blur-md border-t border-white/5 space-y-3">
+                <div className="px-6 py-5 bg-slate-100 dark:bg-black/60 backdrop-blur-md border-t border-slate-200 dark:border-white/10 space-y-4">
                   <div className="relative h-6 flex items-center">
-                      <Progress value={progress} className="h-1.5 w-full bg-white/10" />
+                      <Progress value={progress} className="h-2 w-full bg-slate-300/50 dark:bg-white/10 [&>div]:bg-violet-600 dark:[&>div]:bg-primary shadow-inner" />
                       {keyframes.map((kf, i) => (
                           <div key={i} className="absolute top-1/2 -translate-y-1/2 group/kf pointer-events-auto cursor-pointer" style={{ left: `${(kf.time / Math.max(getEffectiveDuration(), 1)) * 100}%` }} onClick={() => jumpToTime(kf.time)}>
                               <div className="h-2 w-2 rounded-full bg-primary shadow-[0_0_10px_rgba(99,102,241,0.8)] animate-pulse-subtle" />
-                                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded border border-white/10 opacity-0 group-hover/kf:opacity-100 whitespace-nowrap transition-opacity pointer-events-none z-50">{kf.label || formatTime(kf.time)}</div>
+                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded border border-slate-200 dark:border-white/10 opacity-0 group-hover/kf:opacity-100 whitespace-nowrap transition-opacity pointer-events-none z-50">{kf.label || formatTime(kf.time)}</div>
                           </div>
                       ))}
                   </div>
                   <div className="flex justify-between items-center">
-                         <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">{formatTime(currentTime)} / {formatTime(getEffectiveDuration())}</span>
+                         <span className="text-[10px] font-bold font-mono text-slate-600 dark:text-muted-foreground uppercase tracking-wider">{formatTime(currentTime)} / {formatTime(getEffectiveDuration())}</span>
                        <div />
                   </div>
               </div>
             </div>
 
-            <Card className="border-white/5 bg-white/5 backdrop-blur-sm shadow-xl rounded-2xl overflow-hidden">
+            <Card className="border-slate-300/30 dark:border-white/5 bg-slate-100/40 dark:bg-zinc-950/20 backdrop-blur-md shadow-2xl rounded-[2rem] overflow-hidden">
                 <Tabs defaultValue="summary" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 bg-white/5 p-1 rounded-none border-b border-white/5 h-12">
-                    <TabsTrigger value="summary" className="data-[state=active]:bg-primary/10 gap-2"><Sparkles className="h-3.5 w-3.5 text-primary" />AI Summary</TabsTrigger>
-                    <TabsTrigger value="takeaways" className="data-[state=active]:bg-primary/10 gap-2"><Clock className="h-3.5 w-3.5 text-primary" />Timestamps</TabsTrigger>
-                    <TabsTrigger value="details" className="data-[state=active]:bg-primary/10 gap-2"><Info className="h-3.5 w-3.5 text-primary" />Details</TabsTrigger>
+                  <TabsList className="grid w-full grid-cols-3 bg-slate-200/50 dark:bg-white/5 p-1 rounded-none border-b border-slate-300/50 dark:border-white/5 h-14">
+                    <TabsTrigger value="summary" className="data-[state=active]:bg-white dark:data-[state=active]:bg-white/10 text-slate-500 dark:text-zinc-400 data-[state=active]:text-primary dark:data-[state=active]:text-white data-[state=active]:shadow-sm rounded-xl transition-all gap-2 font-bold text-[11px] uppercase tracking-wider"><Sparkles className="h-3.5 w-3.5" />AI Summary</TabsTrigger>
+                    <TabsTrigger value="takeaways" className="data-[state=active]:bg-white dark:data-[state=active]:bg-white/10 text-slate-500 dark:text-zinc-400 data-[state=active]:text-primary dark:data-[state=active]:text-white data-[state=active]:shadow-sm rounded-xl transition-all gap-2 font-bold text-[11px] uppercase tracking-wider"><Clock className="h-3.5 w-3.5" />Timestamps</TabsTrigger>
+                    <TabsTrigger value="details" className="data-[state=active]:bg-white dark:data-[state=active]:bg-white/10 text-slate-500 dark:text-zinc-400 data-[state=active]:text-primary dark:data-[state=active]:text-white data-[state=active]:shadow-sm rounded-xl transition-all gap-2 font-bold text-[11px] uppercase tracking-wider"><Info className="h-3.5 w-3.5" />Details</TabsTrigger>
                   </TabsList>
                   <ScrollArea className="h-64">
                     <TabsContent value="summary" className="p-6 m-0 outline-none animate-in slide-in-from-bottom-2">
-                        <div className="text-sm leading-relaxed text-foreground/80 font-medium">{summary || "Generating overview..."}</div>
+                        <div className="text-sm leading-relaxed text-slate-800 dark:text-foreground/80 font-medium">{summary || "Generating overview..."}</div>
                     </TabsContent>
                     <TabsContent value="takeaways" className="p-6 m-0 outline-none animate-in slide-in-from-bottom-2">
                          <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -1155,18 +1158,18 @@ const VideoPlayer = () => {
                          </div>
                          <div className="grid gap-3">
                              {keyframes.map((kf, i) => (
-                                 <div key={i} className="group flex gap-4 p-3 rounded-xl border border-white/5 bg-white/5 hover:border-primary/20 hover:bg-primary/5 cursor-pointer transition-all" onClick={() => jumpToTime(kf.time)}>
+                             <div key={i} className="group flex gap-4 p-3 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-white/5 hover:border-primary/20 hover:bg-primary/5 cursor-pointer transition-all" onClick={() => jumpToTime(kf.time)}>
                                      <div className="shrink-0 h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center font-bold text-primary group-hover:scale-110 transition-transform">{i + 1}</div>
                                      <div className="space-y-1">
-                                         <span className="text-[10px] font-bold text-primary opacity-60 uppercase">{formatTime(kf.time)} TIMESTAMP</span>
-                                         <p className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">{kf.label || `Jump to ${formatTime(kf.time)}`}</p>
+                                         <span className="text-[10px] font-extrabold text-primary opacity-80 uppercase tracking-widest">{formatTime(kf.time)} TIMESTAMP</span>
+                                         <p className="text-xs text-slate-800 dark:text-muted-foreground group-hover:text-primary transition-colors font-medium">{kf.label || `Jump to ${formatTime(kf.time)}`}</p>
                                      </div>
                                  </div>
                              ))}
                          </div>
                     </TabsContent>
                     <TabsContent value="details" className="p-6 m-0 outline-none animate-in slide-in-from-bottom-2">
-                         <div className="text-sm text-muted-foreground leading-relaxed italic">{video.description}</div>
+                                 <div className="text-sm text-slate-600 dark:text-muted-foreground leading-relaxed italic">{video.description}</div>
                     </TabsContent>
                   </ScrollArea>
                 </Tabs>
@@ -1174,7 +1177,7 @@ const VideoPlayer = () => {
 
             <div className="relative group">
                 {!showNoteInput ? (
-                    <Button variant="ghost" className="w-full flex items-center justify-center gap-2 h-14 border border-dashed border-white/10 rounded-2xl hover:border-primary/40 hover:bg-primary/5 transition-all" onClick={() => setShowNoteInput(true)}>
+                <Button variant="ghost" className="w-full flex items-center justify-center gap-2 h-14 border border-dashed border-slate-300 dark:border-white/10 rounded-2xl hover:border-primary/40 hover:bg-primary/5 transition-all" onClick={() => setShowNoteInput(true)}>
                         <Plus className="h-5 w-5 text-muted-foreground group-hover:text-primary" />
                         <span className="text-sm font-bold text-muted-foreground group-hover:text-foreground">Take synchronization note at {formatTime(currentTime)}</span>
                     </Button>
@@ -1188,16 +1191,16 @@ const VideoPlayer = () => {
           </div>
 
           {/* AI Tutor Sidebar */}
-          <div className={cn("lg:col-span-4 flex flex-col h-full glass-sidebar rounded-3xl overflow-hidden transition-all duration-700", isFocusMode ? "study-spotlight scale-[1.03]" : "shadow-lg border border-white/5")}>
-            <div className="p-6 border-b border-white/5 bg-primary/10">
+          <div className={cn("lg:col-span-4 flex flex-col h-full rounded-3xl overflow-hidden transition-all duration-700", isFocusMode ? "study-spotlight scale-[1.03]" : "shadow-2xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-zinc-950/40 backdrop-blur-md")}>
+            <div className="p-6 border-b border-slate-200 dark:border-white/5 bg-violet-600/5 dark:bg-primary/10">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                    <div className="bg-primary/20 p-2.5 rounded-xl"><Bot className={cn("h-6 w-6 text-primary", isTutorTyping && "animate-pulse")} /></div>
+                    <div className="bg-primary/10 dark:bg-primary/20 p-2.5 rounded-xl border border-primary/20"><Bot className={cn("h-6 w-6 text-primary", isTutorTyping && "animate-pulse")} /></div>
                     <div>
-                        <h3 className="font-extrabold text-sm uppercase tracking-widest text-primary">Edu-Sync Tutor</h3>
+                        <h3 className="font-extrabold text-sm uppercase tracking-widest text-primary drop-shadow-sm">Edu-Sync Tutor</h3>
                         <div className="flex items-center gap-1.5 mt-1">
-                            <span className={cn("h-1.5 w-1.5 rounded-full", isPlayerReady ? "bg-green-500 animate-pulse" : "bg-yellow-500")} />
-                            <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">{isPlayerReady ? "Synced with Playback" : "Syncing Player..."}</span>
+                            <span className={cn("h-1.5 w-1.5 rounded-full", isPlayerReady ? "bg-emerald-500 animate-pulse" : "bg-amber-500")} />
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-muted-foreground uppercase opacity-80">{isPlayerReady ? "Synced with Playback" : "Syncing Player..."}</span>
                         </div>
                     </div>
                 </div>
@@ -1207,21 +1210,21 @@ const VideoPlayer = () => {
               <div className="space-y-6">
                 {messages.map((m, i) => (
                   <div key={i} className={cn("flex", m.role === 'user' ? 'justify-end' : 'justify-start')}>
-                    <div className={cn("max-w-[88%] flex gap-3", m.role === 'user' ? 'flex-row-reverse' : '')}>
-                      <div className={cn("mt-1 shrink-0 h-8 w-8 rounded-xl flex items-center justify-center shadow-sm", m.role === 'user' ? 'bg-secondary' : 'bg-primary/20 border border-primary/20')}>
+                    <div className={cn("max-w-[92%] flex gap-3", m.role === 'user' ? 'flex-row-reverse' : '')}>
+                      <div className={cn("mt-1 shrink-0 h-8 w-8 rounded-xl flex items-center justify-center shadow-sm", m.role === 'user' ? 'bg-secondary' : 'bg-primary/10 dark:bg-primary/20 border border-primary/20')}>
                         {m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4 text-primary" />}
                       </div>
-                      <div className={cn("px-4 py-3 rounded-2xl text-sm leading-relaxed", m.role === 'user' ? 'bg-primary text-primary-foreground rounded-tr-none shadow-glow' : 'bg-white/5 backdrop-blur-md rounded-tl-none border border-white/5')}>{m.content}</div>
+                      <div className={cn("px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-md transition-all", m.role === 'user' ? 'bg-primary text-primary-foreground rounded-tr-none shadow-glow' : 'bg-white dark:bg-white/5 backdrop-blur-md rounded-tl-none border border-slate-200 dark:border-white/5 text-slate-800 dark:text-zinc-200')}>{m.content}</div>
                     </div>
                   </div>
                 ))}
-                {isTutorTyping && (<div className="flex justify-start"><div className="bg-white/5 px-5 py-3 rounded-2xl rounded-tl-none border border-white/5"><div className="flex gap-1.5"><span className="h-2 w-2 bg-primary/50 rounded-full animate-bounce" /><span className="h-2 w-2 bg-primary/50 rounded-full animate-bounce [animation-delay:0.2s]" /><span className="h-2 w-2 bg-primary/50 rounded-full animate-bounce [animation-delay:0.4s]" /></div></div></div>)}
+                {isTutorTyping && (<div className="flex justify-start"><div className="bg-white dark:bg-white/5 px-5 py-3 rounded-2xl rounded-tl-none border border-slate-200 dark:border-white/5 shadow-sm"><div className="flex gap-1.5"><span className="h-2 w-2 bg-primary/50 rounded-full animate-bounce" /><span className="h-2 w-2 bg-primary/50 rounded-full animate-bounce [animation-delay:0.2s]" /><span className="h-2 w-2 bg-primary/50 rounded-full animate-bounce [animation-delay:0.4s]" /></div></div></div>)}
                 <div ref={chatScrollRef} />
               </div>
             </ScrollArea>
-            <div className="p-6 bg-white/5 border-t border-white/5">
+            <div className="p-6 bg-slate-100 dark:bg-black/20 border-t border-slate-200 dark:border-white/5">
               <form onSubmit={handleSendMessage} className="relative">
-                <Input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Ask your synced tutor..." className="pr-12 h-12 bg-black/40 border-white/10 rounded-2xl focus-visible:ring-primary/50" disabled={isTutorTyping} />
+                <Input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Ask your synced tutor..." className="pr-12 h-12 bg-white dark:bg-black/40 border-slate-300 dark:border-white/10 rounded-2xl focus-visible:ring-primary/50 placeholder:text-slate-400 dark:placeholder:text-zinc-500 shadow-inner" disabled={isTutorTyping} />
                 <Button type="submit" size="icon" variant="ghost" className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 text-primary hover:text-primary hover:bg-primary/10 rounded-xl" disabled={!chatInput.trim() || isTutorTyping}><Send className="h-5 w-5" /></Button>
               </form>
             </div>

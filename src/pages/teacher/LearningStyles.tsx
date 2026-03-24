@@ -37,9 +37,37 @@ export default function StudentLearningStyles() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      const { data: rooms, error: roomsError } = await supabase
+        .from("study_rooms")
+        .select("id")
+        .or(`created_by.eq.${user.id},host_id.eq.${user.id}`);
+
+      if (roomsError) throw roomsError;
+
+      const roomIds = (rooms || []).map((room: any) => room.id);
+      if (roomIds.length === 0) {
+        setStudents([]);
+        return;
+      }
+
+      const { data: participants, error: participantsError } = await supabase
+        .from("room_participants")
+        .select("user_id")
+        .in("room_id", roomIds)
+        .eq("role", "student");
+
+      if (participantsError) throw participantsError;
+
+      const studentIds = Array.from(new Set((participants || []).map((p: any) => p.user_id)));
+      if (studentIds.length === 0) {
+        setStudents([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("learning_styles")
         .select("*, profiles(username)")
+        .in("user_id", studentIds)
         .order("updated_at", { ascending: false });
 
       if (error) throw error;

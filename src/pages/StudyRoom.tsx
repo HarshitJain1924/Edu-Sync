@@ -12,7 +12,7 @@ import { useWebRTC } from "@/hooks/useWebRTC";
 import VideoGrid from "@/components/video/VideoGrid";
 import Whiteboard from "@/components/video/Whiteboard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Message {
   id: string;
@@ -92,10 +92,13 @@ export default function StudyRoom() {
   const [createdBy, setCreatedBy] = useState<string | null>(null);
   const [globalRole, setGlobalRole] = useState<string>("student");
   const [myRole, setMyRole] = useState<'teacher' | 'student'>('student');
+  const [roomType, setRoomType] = useState<'teacher' | 'free'>('teacher');
   
   // Derivation: You are a room teacher if the guest list says so
   const isRoomTeacher = myRole === 'teacher';
-  const isTeacher = isRoomTeacher; // For backwards compat in JSX
+  const isFreeRoom = roomType === 'free';
+  const hasFullAccess = isRoomTeacher || isFreeRoom;
+  const isTeacher = hasFullAccess; // For backwards compat in JSX
 
 
   const [message, setMessage] = useState("");
@@ -220,13 +223,19 @@ export default function StudyRoom() {
         .single();
 
       // 2. Fetch global role explicitly to avoid state race conditions on re-entry
-      const { data: roleData } = await supabase
+      const { data: roleData, error: roleError } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", currentUser.id)
+        .limit(1)
         .maybeSingle();
       
-      const currentGlobalRole = roleData?.role || globalRole || 'student';
+      if (roleError) console.warn("Error fetching user role:", roleError);
+      
+      const roleValue = typeof roleData === 'string' ? roleData : roleData?.role;
+      const currentGlobalRole = roleValue || globalRole || 'student';
+      console.log(`Global role calculated as: ${currentGlobalRole} (roleData: ${JSON.stringify(roleData)})`);
+      
       const isOwner = roomData?.created_by === currentUser.id || roomData?.host_id === currentUser.id;
       const isGlobalTeacher = currentGlobalRole === 'teacher' || currentGlobalRole === 'admin';
       const role = (isOwner || isGlobalTeacher) ? 'teacher' : 'student';
@@ -239,22 +248,39 @@ export default function StudyRoom() {
         .maybeSingle();
 
       if (!existing) {
-        await supabase.from('room_participants').insert({
+        const { error: insertError } = await supabase.from('room_participants').insert({
           room_id: roomId,
           user_id: currentUser.id,
           is_online: true,
           role,
           joined_at: new Date().toISOString()
         });
+        
+        if (insertError) {
+          console.warn("Insert participant failed (likely 409), falling back to update:", insertError);
+          const { error: fallbackUpdateError } = await supabase.from('room_participants')
+            .update({ is_online: true, role })
+            .eq('room_id', roomId)
+            .eq('user_id', currentUser.id);
+          if (fallbackUpdateError) console.error("Fallback Update Error:", fallbackUpdateError);
+        }
         setMyRole(role);
       } else {
-        // Upsert online status and enforce 'teacher' role for owners/admins
-        const finalRole = (isOwner || isGlobalTeacher) ? 'teacher' : (existing.role || 'student');
-        await supabase.from('room_participants')
+        // Enforce the computed role ensuring global teachers stay teachers!
+        const finalRole = role; 
+        console.log(`Updating existing participant ${existing.id} to role: ${finalRole}`);
+        
+        const { error: updateError } = await supabase.from('room_participants')
           .update({ is_online: true, role: finalRole })
           .eq('id', existing.id);
+          
+        if (updateError) console.error("Update participant failed:", updateError);
+          
         setMyRole(finalRole as 'teacher' | 'student');
       }
+      
+      // Immediately fetch participants again to ensure the UI updates with our self-sync logic
+      setTimeout(() => fetchParticipants(), 500);
     } catch(e) { console.error('ensureParticipantRecord error', e); }
   };
 
@@ -262,11 +288,12 @@ export default function StudyRoom() {
     try {
       const { data, error } = await supabase
         .from("study_rooms")
-        .select("name, host_id, created_by, allow_student_drawing")
+        .select("name, host_id, created_by, allow_student_drawing, type")
         .eq("id", roomId)
         .single();
       if (error) throw error;
       setRoomName(data.name);
+      setRoomType(data.type || 'teacher');
       const ownerId = data.host_id || data.created_by;
       setHostId(data.host_id || null);
       setCreatedBy(data.created_by || null);
@@ -527,8 +554,12 @@ export default function StudyRoom() {
   };
 
   const requestScreenShare = () => {
-    supabase.channel(`room_actions:${roomId}`).send({ type: 'broadcast', event: 'screen_request', payload: { userId: currentUser?.id, username: displayName } });
-    toast({ title: "📤 Screen share request sent to teacher." });
+    if (isFreeRoom) {
+      screenShare();
+    } else {
+      supabase.channel(`room_actions:${roomId}`).send({ type: 'broadcast', event: 'screen_request', payload: { userId: currentUser?.id, username: displayName } });
+      toast({ title: "📤 Screen share request sent to teacher." });
+    }
   };
 
   const copyInvite = () => {
@@ -554,151 +585,198 @@ export default function StudyRoom() {
   const myHandRaised = participants.find(p => p.user_id === currentUser?.id)?.hand_raised ?? false;
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100 dark:bg-[#0f111a] text-slate-900 dark:text-white overflow-hidden transition-colors duration-500">
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#020202] text-slate-900 dark:text-white overflow-hidden relative font-sans transition-all duration-700" style={{ backgroundImage: "var(--study-room-gradient)" }}>
+      <style>{`
+        :root { --study-room-gradient: radial-gradient(ellipse at top, #f8fafc, #f1f5f9); }
+        .dark { --study-room-gradient: radial-gradient(ellipse at top, #0a0e1a, #020202); }
+      `}</style>
       {isTeacher && pendingScreenRequest && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-800 border border-amber-400/50 rounded-2xl p-5 shadow-2xl flex flex-col gap-3 min-w-[300px]">
-          <p className="font-semibold text-amber-300">📡 Screen Share Request</p>
-          <p className="text-sm text-gray-300"><strong>{pendingScreenRequest.username}</strong> wants to share their screen.</p>
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-white/90 dark:bg-[#1a1919]/90 backdrop-blur-2xl border border-slate-200 dark:border-white/5 rounded-3xl p-5 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] flex flex-col gap-3 min-w-[300px]">
+          <p className="font-bold text-blue-600 dark:text-blue-400">📡 Screen Share Request</p>
+          <p className="text-sm text-slate-600 dark:text-gray-300"><strong>{pendingScreenRequest.username}</strong> wants to share their screen.</p>
           <div className="flex gap-3 mt-1">
-            <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => approveScreenShare(pendingScreenRequest.userId)}>
+            <Button size="sm" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white border-none shadow-[0_0_20px_rgba(37,99,235,0.2)]" onClick={() => approveScreenShare(pendingScreenRequest.userId)}>
               ✅ Approve
             </Button>
-            <Button size="sm" variant="destructive" className="flex-1" onClick={() => rejectScreenShare(pendingScreenRequest.userId)}>
-              ❌ Reject
+            <Button size="sm" variant="ghost" className="flex-1 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-600 dark:text-white" onClick={() => rejectScreenShare(pendingScreenRequest.userId)}>
+              Reject
             </Button>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <header className="h-16 bg-slate-100 dark:bg-[#161b22] border-b border-slate-300 dark:border-white/10 px-6 flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={handleLeaveRoom} className="hover:bg-slate-200 dark:hover:bg-white/10 rounded-full">
+      <header className="h-20 shrink-0 px-6 sm:px-8 flex items-center justify-between z-10 relative">
+        <div className="flex items-center gap-5">
+          <Button variant="ghost" size="icon" onClick={handleLeaveRoom} className="hover:bg-slate-200 dark:hover:bg-white/10 rounded-full h-10 w-10 text-slate-600 dark:text-white shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-xl font-bold truncate max-w-[200px] sm:max-w-md">{roomName || "Classroom"}</h1>
-            <div className="flex items-center gap-2">
-              <span className={`text-xs font-semibold tracking-wider uppercase ${connectionStatus === 'connected' ? 'text-emerald-400' : connectionStatus === 'reconnecting' ? 'text-yellow-400' : 'text-red-400'}`}>
-                {connectionStatus === 'connected' ? '🟢 LIVE' : connectionStatus === 'reconnecting' ? '🟡 RECONNECTING' : '🔴 DISCONNECTED'}
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-extrabold truncate max-w-[200px] sm:max-w-md tracking-tight" style={{ fontFamily: "Manrope, sans-serif" }}>
+              {roomName || "Classroom"}
+            </h1>
+            <div className="flex items-center gap-3 mt-1">
+              <span className={`text-[10px] font-bold tracking-[0.2em] uppercase px-2 py-0.5 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : connectionStatus === 'reconnecting' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-400'}`}>
+                {connectionStatus === 'connected' ? 'LIVE' : connectionStatus === 'reconnecting' ? 'RECONNECTING' : 'DISCONNECTED'}
               </span>
-              <Badge variant="outline" className={`text-xs ml-2 ${isTeacher ? 'border-amber-400 text-amber-400' : 'border-blue-400 text-blue-400'}`}>
-                {isTeacher ? '👑 Teacher' : '🎓 Student'}
-              </Badge>
+              <span className={`text-[10px] font-bold tracking-[0.1em] uppercase px-2 py-0.5 rounded-md ${isFreeRoom ? 'bg-[#06b6d4]/10 text-[#06b6d4]' : (isRoomTeacher ? 'bg-[#f59e0b]/10 text-[#f59e0b]' : 'bg-[#3b82f6]/10 text-[#3b82f6]')}`}>
+                {isFreeRoom ? '🧠 Peer Room' : (isRoomTeacher ? '👑 Teacher' : '🎓 Student')}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {timerMode !== 'idle' && (
-            <div className={`hidden sm:flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-mono font-bold ${timerMode === 'study' ? 'bg-blue-500/10 border-blue-400/30 text-blue-400' : 'bg-green-500/10 border-green-400/30 text-green-400'}`}>
+            <div className={`hidden sm:flex items-center gap-2 px-5 py-2.5 rounded-full backdrop-blur-xl text-sm font-mono font-bold shadow-[0_10px_20px_-10px_rgba(0,0,0,0.5)] ${timerMode === 'study' ? 'bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'}`}>
               <Timer className="h-4 w-4" />
               {timerMode.toUpperCase()}: {formatTimer(timeLeft)}
-              <Button size="icon" variant="ghost" className="h-6 w-6 rounded-full" onClick={() => setTimerMode('idle')}>
+              <Button size="icon" variant="ghost" className="h-6 w-6 rounded-full hover:bg-white/10 ml-2" onClick={() => setTimerMode('idle')}>
                 <Square className="h-3 w-3" />
               </Button>
             </div>
           )}
           {isTeacher && raisedHands.length > 0 && (
-            <div className="flex items-center gap-1 bg-amber-500/20 border border-amber-400/40 text-amber-300 px-3 py-1.5 rounded-full text-xs font-semibold animate-pulse">
-              <Hand className="h-3 w-3" />
+            <div className="flex items-center gap-2 bg-[#f59e0b]/20 ring-1 ring-[#f59e0b]/40 text-[#fbd38d] px-4 py-2 rounded-full text-xs font-bold animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.2)]">
+              <Hand className="h-4 w-4" />
               {raisedHands.length} hand{raisedHands.length > 1 ? 's' : ''} raised
             </div>
           )}
-          <Button size="sm" onClick={copyInvite} className="hidden sm:flex gap-2 bg-blue-600 hover:bg-blue-700 text-white border-none">
-            <Copy className="h-4 w-4" /> Invite
-          </Button>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <Button onClick={copyInvite} className="hidden sm:flex items-center gap-2 h-10 px-5 rounded-full font-bold text-white border-0 transition-transform hover:scale-105" style={{ background: "linear-gradient(135deg, #06b6d4, #3b82f6)", boxShadow: "0 8px 25px -5px rgba(59,130,246,0.3)" }}>
+              <Copy className="h-4 w-4" /> Invite
+            </Button>
+          </div>
         </div>
       </header>
 
       {/* Main Layout */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden px-4 sm:px-8 pb-28 gap-6 relative z-0">
+        
         {/* Stage Area */}
-        <div className="flex-1 p-4 flex flex-col min-h-0 relative">
-          <div className="flex-1 bg-slate-200 dark:bg-[#1c212b] rounded-2xl overflow-hidden shadow-2xl border border-slate-300 dark:border-white/5 flex items-center justify-center relative">
+        <div className="flex-1 flex flex-col min-h-0 relative">
+          <div className="flex-1 bg-[#0e0e0e]/80 rounded-[2rem] overflow-hidden shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8)] flex items-center justify-center relative backdrop-blur-md ring-1 ring-white/5">
             {showWhiteboard ? (
-              <Whiteboard roomId={roomId || ''} userId={currentUser?.id} isReadOnly={!isTeacher && !allowStudentDrawing} />
+              <Whiteboard roomId={roomId || ''} userId={currentUser?.id} isReadOnly={!hasFullAccess && !allowStudentDrawing} />
             ) : (
-              <div className="w-full h-full p-2">
+              <div className="w-full h-full p-2 lg:p-4">
                 <VideoGrid localStream={localStream} peers={peers} currentName={displayName} localMicOn={micOn} />
               </div>
             )}
           </div>
+        </div>
 
-          {/* Bottom Toolbar */}
-          <div className="h-20 shrink-0 mt-4 bg-slate-100 dark:bg-[#161b22] border border-slate-300 dark:border-white/10 rounded-2xl flex items-center justify-center gap-3 md:gap-5 px-4 shadow-xl">
-            <Button size="icon" className={`h-12 w-12 rounded-full ${micOn ? 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600' : 'bg-red-500 hover:bg-red-600 text-white'}`} onClick={toggleMic}>
-              {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+        {/* Control Dock (Floating Pill) */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 h-16 sm:h-20 px-6 sm:px-8 bg-white/60 dark:bg-[#1a1919]/60 backdrop-blur-3xl rounded-full shadow-[0_20px_50px_-10px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.6)] ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center gap-3 sm:gap-5 transition-all">
+          <Button 
+            size="icon" 
+            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${micOn ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-rose-500/10 text-rose-500 dark:text-rose-400 ring-1 ring-rose-500/30'}`} 
+            onClick={toggleMic}
+          >
+            {micOn ? <Mic className="h-5 w-5 sm:h-6 sm:w-6" /> : <MicOff className="h-5 w-5 sm:h-6 sm:w-6" />}
+          </Button>
+
+          <Button 
+            size="icon" 
+            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${camOn ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-rose-500/10 text-rose-500 dark:text-rose-400 ring-1 ring-rose-500/30'}`} 
+            onClick={toggleCam}
+          >
+            {camOn ? <Video className="h-5 w-5 sm:h-6 sm:w-6" /> : <VideoOff className="h-5 w-5 sm:h-6 sm:w-6" />}
+          </Button>
+
+          {/* Screen Share */}
+          {isTeacher ? (
+            <Button 
+              size="icon" 
+              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${isScreenSharing ? 'bg-[#06b6d4]/10 text-[#06b6d4] ring-1 ring-[#06b6d4]/30 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white ring-1 ring-slate-200 dark:ring-white/10'}`} 
+              onClick={screenShare} 
+              title="Share Screen"
+            >
+              <MonitorUp className="h-5 w-5 sm:h-6 sm:w-6" />
             </Button>
-
-            <Button size="icon" className={`h-12 w-12 rounded-full ${camOn ? 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600' : 'bg-red-500 hover:bg-red-600 text-white'}`} onClick={toggleCam}>
-              {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+          ) : (
+            <Button 
+              size="icon" 
+              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white ring-1 ring-slate-200 dark:ring-white/10 hover:bg-[#f59e0b]/20 hover:text-[#f59e0b] hover:ring-[#f59e0b]/40" 
+              onClick={requestScreenShare} 
+              title="Request Screen Share"
+            >
+              <MonitorUp className="h-5 w-5 sm:h-6 sm:w-6" />
             </Button>
+          )}
 
-            {/* Screen Share: teacher does it directly, student sends request */}
-            {isTeacher ? (
-              <Button size="icon" className={`h-12 w-12 rounded-full ${isScreenSharing ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600'}`} onClick={screenShare} title="Share Screen">
-                <MonitorUp className="h-5 w-5" />
-              </Button>
-            ) : (
-              <Button size="icon" className="h-12 w-12 rounded-full bg-slate-300 text-slate-900 hover:bg-amber-600 hover:text-white dark:bg-slate-700 dark:text-white" onClick={requestScreenShare} title="Request Screen Share">
-                <MonitorUp className="h-5 w-5" />
-              </Button>
-            )}
+          <div className="w-[1px] h-8 bg-slate-200 dark:bg-white/10 mx-1 sm:mx-2 hidden sm:block" />
 
-            <div className="w-[1px] h-8 bg-slate-300 dark:bg-white/10 mx-1" />
+          {/* Toggle Whiteboard */}
+          <Button 
+            size="icon" 
+            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${showWhiteboard ? 'bg-[#9c48ea]/20 text-[#9c48ea] dark:text-[#cc97ff] ring-1 ring-[#9c48ea]/40 shadow-[0_0_20px_rgba(156,72,234,0.3)]' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white ring-1 ring-slate-200 dark:ring-white/10'}`} 
+            onClick={() => setShowWhiteboard(s => !s)} 
+            title="Toggle Whiteboard"
+          >
+            <Edit3 className="h-5 w-5 sm:h-6 sm:w-6" />
+          </Button>
 
-            <Button size="icon" className={`h-12 w-12 rounded-full ${showWhiteboard ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600'}`} onClick={() => setShowWhiteboard(s => !s)} title="Toggle Whiteboard">
-              <Edit3 className="h-5 w-5" />
+          {/* Student: Raise Hand */}
+          {!isTeacher && (
+            <Button 
+              size="icon" 
+              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${myHandRaised ? 'bg-[#f59e0b]/20 text-[#f59e0b] ring-1 ring-[#f59e0b]/40 shadow-[0_0_20px_rgba(245,158,11,0.3)]' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white ring-1 ring-slate-200 dark:ring-white/10'}`} 
+              onClick={myHandRaised ? lowerHand : raiseHand} 
+              title={myHandRaised ? 'Lower Hand' : 'Raise Hand'}
+            >
+              <Hand className="h-5 w-5 sm:h-6 sm:w-6" />
             </Button>
+          )}
 
-            {/* Student: Raise Hand */}
-            {!isTeacher && (
-              <Button size="icon" className={`h-12 w-12 rounded-full ${myHandRaised ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-slate-300 text-slate-900 hover:bg-slate-400 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600'}`} onClick={myHandRaised ? lowerHand : raiseHand} title={myHandRaised ? 'Lower Hand' : 'Raise Hand'}>
-                <Hand className="h-5 w-5" />
-              </Button>
-            )}
-
-            <Button size="icon" className="h-12 w-[80px] rounded-full bg-red-600 hover:bg-red-700 ml-2 hidden sm:flex" onClick={handleLeaveRoom}>
-              <PhoneOff className="h-5 w-5" />
-            </Button>
-          </div>
+          <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-1 hidden sm:block"></div>
+          
+          {/* Leave Button */}
+          <Button 
+            size="icon" 
+            className="w-12 sm:w-[100px] h-12 sm:h-14 rounded-full font-bold transition-all duration-300 hover:scale-110 active:scale-95 bg-rose-600 hover:bg-rose-500 text-white border-0 shadow-[0_0_20px_rgba(225,29,72,0.4)] ml-1 sm:ml-2" 
+            onClick={handleLeaveRoom}
+            title="Leave Room"
+          >
+            <PhoneOff className="h-5 w-5 sm:h-6 sm:w-6" />
+          </Button>
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-full lg:w-80 h-full bg-slate-100 dark:bg-[#161b22] border-l border-slate-300 dark:border-white/10 flex flex-col shrink-0">
-          <div className="flex border-b border-slate-300 dark:border-white/10 shrink-0">
-            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'chat' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400 bg-blue-500/10 dark:bg-blue-400/5' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('chat')}>
+        <div className="w-full lg:w-[360px] h-full bg-white/40 dark:bg-[#1a1919]/60 backdrop-blur-3xl rounded-[2rem] shadow-[0_0_40px_rgba(0,0,0,0.1)] dark:shadow-[0_0_40px_rgba(0,0,0,0.4)] flex flex-col shrink-0 overflow-hidden ring-1 ring-slate-200 dark:ring-white/5 relative z-10">
+          <div className="flex p-3 shrink-0 gap-2 border-b border-slate-200 dark:border-white/5">
+            <button className={`flex-1 py-2 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'chat' ? 'bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white shadow-md ring-1 ring-slate-200 dark:ring-white/5' : 'text-slate-500 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('chat')}>
               <MessageSquare className="h-4 w-4" /> Chat
             </button>
-            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'people' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400 bg-blue-500/10 dark:bg-blue-400/5' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('people')}>
+            <button className={`flex-1 py-2 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'people' ? 'bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white shadow-md ring-1 ring-slate-200 dark:ring-white/5' : 'text-slate-500 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('people')}>
               <Users className="h-4 w-4" /> People ({participants.filter(p => p.is_online).length})
             </button>
-            <button className={`flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'materials' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400 bg-blue-500/10 dark:bg-blue-400/5' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('materials')}>
+            <button className={`flex-1 py-2 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'materials' ? 'bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white shadow-md ring-1 ring-slate-200 dark:ring-white/5' : 'text-slate-500 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5'}`} onClick={() => setActiveTab('materials')}>
               <FileText className="h-4 w-4" /> Notes
             </button>
           </div>
 
           {/* Chat Tab */}
           {activeTab === 'chat' && (
-            <div className="flex-1 flex flex-col min-h-0 bg-slate-100 dark:bg-[#0f111a]">
+            <div className="flex-1 flex flex-col min-h-0 bg-transparent">
               <ScrollArea className="flex-1 p-4">
                 <div className="space-y-3">
                   {messages.map((msg, idx) => {
                     const isMe = msg.user_id === currentUser?.id;
                     return (
                       <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] rounded-2xl px-3 py-2 ${isMe ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-sm'}`}>
-                          {!isMe && <p className="text-xs font-semibold text-blue-300 mb-0.5">{msg.profiles?.username || 'User'}</p>}
-                          <p className="text-sm text-inherit break-words">{msg.message}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-white/40 mt-0.5 text-right">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        <div className={`max-w-[85%] px-4 py-2.5 shadow-sm ${isMe ? 'bg-[#3b82f6]/80 text-white rounded-2xl rounded-tr-sm backdrop-blur-md' : 'bg-slate-200/50 dark:bg-white/5 text-slate-800 dark:text-gray-200 rounded-2xl rounded-tl-sm ring-1 ring-slate-300 dark:ring-white/5'}`}>
+                          {!isMe && <p className="text-xs font-bold text-[#7c3aed] dark:text-[#9c48ea] mb-1">{msg.profiles?.username || 'User'}</p>}
+                          <p className="text-sm text-inherit break-words leading-relaxed">{msg.message}</p>
+                          <p className="text-[9px] text-slate-500 dark:text-white/40 mt-1.5 mb-0.5 text-right font-medium tracking-wider uppercase">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
                       </div>
                     );
                   })}
                   {[...typingUsers].length > 0 && (
                     <div className="flex justify-start">
-                      <div className="bg-slate-200 dark:bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-slate-600 dark:text-gray-400 italic">
+                      <div className="bg-white/5 ring-1 ring-white/5 rounded-2xl rounded-tl-sm px-4 py-2 text-xs text-gray-400 italic font-medium">
                         {[...typingUsers].join(', ')} typing...
                       </div>
                     </div>
@@ -706,17 +784,17 @@ export default function StudyRoom() {
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
-              <div className="p-3 border-t border-slate-300 dark:border-white/10 shrink-0">
-                <form className="flex gap-2" onSubmit={handleSendMessage}>
+              <div className="p-3 shrink-0">
+                <form className="flex gap-2 bg-white/5 rounded-full p-1.5 ring-1 ring-white/10 focus-within:ring-[#699cff]/50 transition-all shadow-inner" onSubmit={handleSendMessage}>
                   <Input
                     value={message}
                     onChange={handleTyping}
-                    placeholder="Type a message..."
-                    className="flex-1 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 rounded-full text-sm"
+                    placeholder="Message..."
+                    className="flex-1 bg-transparent border-0 focus-visible:ring-0 text-sm text-white placeholder-gray-500 px-3 h-10"
                     autoComplete="off"
                   />
-                  <Button type="submit" size="icon" className="h-10 w-10 rounded-full bg-blue-600 hover:bg-blue-700 shrink-0">
-                    <Send className="h-4 w-4" />
+                  <Button type="submit" size="icon" className="h-10 w-10 rounded-full border-0 text-white shadow-md transition-transform hover:scale-105" style={{ background: "linear-gradient(135deg, #3b82f6, #699cff)" }}>
+                    <Send className="h-4 w-4 ml-0.5" />
                   </Button>
                 </form>
               </div>
@@ -725,39 +803,48 @@ export default function StudyRoom() {
 
           {/* People Tab */}
           {activeTab === 'people' && (
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              {/* Teacher Controls Panel */}
-              {isTeacher && (
-                <div className="p-3 border-b border-slate-300 dark:border-white/10 bg-amber-500/5 space-y-2 shrink-0">
-                  <p className="text-xs text-amber-400 font-bold tracking-wider uppercase flex items-center gap-1"><Crown className="h-3 w-3" /> Teacher Controls</p>
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-transparent">
+              {/* Controls Panel */}
+              {(isTeacher || isFreeRoom) && (
+                <div className="m-3 p-4 rounded-2xl bg-slate-100 dark:bg-white/5 ring-1 ring-slate-200 dark:ring-white/10 space-y-3 shrink-0 backdrop-blur-md">
+                  <p className={`text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5 ${isFreeRoom ? 'text-blue-600 dark:text-[#06b6d4]' : 'text-amber-600 dark:text-[#f59e0b]'}`}>
+                    {isFreeRoom ? <Users className="h-3 w-3" /> : <Crown className="h-3 w-3" />} 
+                    {isFreeRoom ? 'Room Controls' : 'Teacher Controls'}
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" className="text-xs border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10" onClick={() => startTimer(25, 'study')}>
+                    <Button size="sm" variant="ghost" className="text-xs bg-slate-200 dark:bg-white/5 hover:bg-slate-300 dark:hover:bg-white/10 text-slate-900 dark:text-white ring-1 ring-slate-300 dark:ring-white/5 rounded-xl h-9" onClick={() => startTimer(25, 'study')}>
                       <Timer className="h-3 w-3 mr-1" /> 25m Focus
                     </Button>
-                    <Button size="sm" variant="outline" className="text-xs border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10" onClick={() => startTimer(5, 'break')}>
+                    <Button size="sm" variant="ghost" className="text-xs bg-slate-200 dark:bg-white/5 hover:bg-slate-300 dark:hover:bg-white/10 text-slate-900 dark:text-white ring-1 ring-slate-300 dark:ring-white/5 rounded-xl h-9" onClick={() => startTimer(5, 'break')}>
                       <Timer className="h-3 w-3 mr-1" /> 5m Break
                     </Button>
-                    <Button size="sm" variant="outline" className={`text-xs col-span-2 border-slate-300 dark:border-white/10 ${allowStudentDrawing ? 'bg-blue-600/20 text-blue-600 dark:text-blue-400 border-blue-400/30' : 'bg-white dark:bg-white/5'}`} onClick={toggleWhiteboardPermission}>
-                      {allowStudentDrawing ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
-                      {allowStudentDrawing ? 'Disable Student Drawing' : 'Allow Student Drawing'}
-                    </Button>
-                    <Button size="sm" variant="destructive" className="text-xs col-span-2" onClick={teacherEndSession}>
-                      End Session for All
-                    </Button>
+                    
+                    {!isFreeRoom && (
+                      <Button size="sm" variant="ghost" className={`text-xs col-span-2 rounded-xl h-9 ${allowStudentDrawing ? 'bg-blue-500/10 dark:bg-[#3b82f6]/20 text-blue-600 dark:text-[#699cff] ring-1 ring-blue-500/30' : 'bg-slate-200 dark:bg-white/5 hover:bg-slate-300 dark:hover:bg-white/10 text-slate-900 dark:text-white ring-1 ring-slate-300 dark:ring-white/5'}`} onClick={toggleWhiteboardPermission}>
+                        {allowStudentDrawing ? <Unlock className="h-3 w-3 mr-1.5" /> : <Lock className="h-3 w-3 mr-1.5" />}
+                        {allowStudentDrawing ? 'Disable Student Drawing' : 'Allow Student Drawing'}
+                      </Button>
+                    )}
+                    
+                    {isRoomTeacher && (
+                      <Button size="sm" variant="ghost" className="text-xs col-span-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 dark:text-rose-400 ring-1 ring-rose-500/30 rounded-xl h-9" onClick={teacherEndSession}>
+                        End Session for All
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Student Panel (visible only to students) */}
-              {!isTeacher && (
-                <div className="p-3 border-b border-slate-300 dark:border-white/10 bg-blue-500/5 space-y-2 shrink-0">
-                  <p className="text-xs text-blue-400 font-bold tracking-wider uppercase flex items-center gap-1"><BookOpen className="h-3 w-3" /> Student Actions</p>
+              {/* Student Panel (visible only to non-teacher students in moderated rooms) */}
+              {!isTeacher && !isFreeRoom && (
+                <div className="m-3 p-4 rounded-2xl bg-[#3b82f6]/5 dark:bg-[#3b82f6]/10 ring-1 ring-[#3b82f6]/20 space-y-3 shrink-0 backdrop-blur-md">
+                  <p className="text-[10px] text-[#3b82f6] dark:text-[#699cff] font-bold tracking-widest uppercase flex items-center gap-1.5"><BookOpen className="h-3 w-3" /> Student Actions</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" className={`text-xs border-slate-300 dark:border-white/10 ${myHandRaised ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-400/30' : 'bg-white dark:bg-white/5'}`} onClick={myHandRaised ? lowerHand : raiseHand}>
-                      <Hand className="h-3 w-3 mr-1" />{myHandRaised ? 'Lower Hand' : 'Raise Hand'}
+                    <Button size="sm" variant="ghost" className={`text-xs rounded-xl h-9 ${myHandRaised ? 'bg-[#f59e0b]/20 text-[#f59e0b] dark:text-[#fbd38d] ring-1 ring-[#f59e0b]/30 hover:bg-[#f59e0b]/30' : 'bg-slate-200 dark:bg-white/5 hover:bg-slate-300 dark:hover:bg-white/10 text-slate-900 dark:text-white ring-1 ring-slate-300 dark:ring-white/5'}`} onClick={myHandRaised ? lowerHand : raiseHand}>
+                      <Hand className="h-3 w-3 mr-1.5" />{myHandRaised ? 'Lower Hand' : 'Raise Hand'}
                     </Button>
-                    <Button size="sm" variant="outline" className="text-xs border-slate-300 dark:border-white/10 bg-white dark:bg-white/5" onClick={requestScreenShare}>
-                      <MonitorUp className="h-3 w-3 mr-1" /> Share Screen
+                    <Button size="sm" variant="ghost" className="text-xs bg-slate-200 dark:bg-white/5 hover:bg-slate-300 dark:hover:bg-white/10 text-slate-900 dark:text-white ring-1 ring-slate-300 dark:ring-white/5 rounded-xl h-9" onClick={requestScreenShare}>
+                      <MonitorUp className="h-3 w-3 mr-1.5" /> Share Screen
                     </Button>
                   </div>
                   {!allowStudentDrawing && (
@@ -767,49 +854,49 @@ export default function StudyRoom() {
               )}
 
               <ScrollArea className="flex-1">
-                <div className="p-3 space-y-2">
-                  {participants.map(p => {
+                <div className="px-3 pb-3 space-y-1.5">
+                  {participants.filter(p => p.is_online).map(p => {
                     const isMe = p.user_id === currentUser?.id;
                     const isParticipantTeacher = p.role === 'teacher';
                     return (
-                      <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors group">
+                      <div key={p.id} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-100/50 dark:bg-white/[0.03] hover:bg-slate-200/50 dark:hover:bg-white/[0.08] ring-1 ring-slate-200 dark:ring-white/5 transition-all group">
                         <div className="relative">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold shrink-0">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#9c48ea] to-[#3b82f6] flex items-center justify-center text-sm font-bold shrink-0 text-white shadow-inner">
                             {p.profiles?.username?.[0]?.toUpperCase() || '?'}
                           </div>
-                          <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#161b22] ${p.is_online ? 'bg-emerald-400' : 'bg-gray-500'}`}></span>
+                          <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-[#1a1919] ${p.is_online ? 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-gray-500'}`}></span>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-medium truncate">{p.profiles?.username || 'User'}{isMe ? ' (you)' : ''}</span>
-                            {isParticipantTeacher && <Crown className="h-3 w-3 text-amber-400 shrink-0" />}
-                            {p.hand_raised && !isParticipantTeacher && <Hand className="h-3 w-3 text-amber-400 shrink-0 animate-bounce" />}
+                            <span className="text-sm font-bold text-slate-800 dark:text-white tracking-wide truncate">{p.profiles?.username || 'User'}{isMe ? ' (you)' : ''}</span>
+                            {isParticipantTeacher && <Crown className="h-3 w-3 text-[#f59e0b] shrink-0" />}
+                            {p.hand_raised && !isParticipantTeacher && <Hand className="h-3 w-3 text-[#f59e0b] shrink-0 animate-bounce" />}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-gray-400 mt-0.5">
-                            <Badge variant="outline" className={`text-[9px] px-1 py-0 h-4 border-0 ${isParticipantTeacher ? 'bg-amber-400/15 text-amber-400' : 'bg-blue-400/15 text-blue-400'}`}>
-                              {isParticipantTeacher ? 'Teacher' : 'Student'}
-                            </Badge>
-                            {p.mic_on ? <Mic className="h-3 w-3 text-emerald-400" /> : <MicOff className="h-3 w-3 text-red-400" />}
-                            {!p.camera_on && <VideoOff className="h-3 w-3 text-red-400" />}
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-[9px] font-bold tracking-[0.1em] uppercase px-2 py-0.5 rounded-md ${isParticipantTeacher ? 'bg-[#f59e0b]/10 text-[#f59e0b]' : 'bg-[#3b82f6]/10 text-[#699cff]'}`}>
+                              {isParticipantTeacher ? (isFreeRoom ? 'Host' : 'Teacher') : 'Student'}
+                            </span>
+                            {p.mic_on ? <Mic className="h-3.5 w-3.5 text-emerald-400 drop-shadow-[0_0_5px_rgba(16,185,129,0.5)]" /> : <MicOff className="h-3.5 w-3.5 text-rose-400" />}
+                            {!p.camera_on && <VideoOff className="h-3.5 w-3.5 text-rose-400" />}
                           </div>
                         </div>
-                        {isTeacher && !isMe && (
+                        {isRoomTeacher && !isMe && !isFreeRoom && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-white/10 text-white">
                                 <MoreVertical className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white">
-                              <DropdownMenuItem onClick={() => teacherMuteUser(p.user_id)} className="hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer">
+                            <DropdownMenuContent align="end" className="bg-[#201f1f]/90 backdrop-blur-xl border-white/10 text-white rounded-2xl p-1 shadow-2xl min-w-[140px]">
+                              <DropdownMenuItem onClick={() => teacherMuteUser(p.user_id)} className="hover:bg-white/10 cursor-pointer rounded-xl focus:bg-white/10 active:bg-white/20">
                                 <MicOff className="h-4 w-4 mr-2" /> Mute
                               </DropdownMenuItem>
                               {p.hand_raised && (
-                                <DropdownMenuItem onClick={async () => { await supabase.from('room_participants').update({ hand_raised: false }).eq('room_id', roomId).eq('user_id', p.user_id); }} className="hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer">
+                                <DropdownMenuItem onClick={async () => { await supabase.from('room_participants').update({ hand_raised: false }).eq('room_id', roomId).eq('user_id', p.user_id); }} className="hover:bg-white/10 cursor-pointer rounded-xl focus:bg-white/10">
                                   <Hand className="h-4 w-4 mr-2" /> Lower Hand
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem onClick={() => teacherRemoveUser(p.user_id)} className="text-red-400 hover:bg-red-400/10 cursor-pointer">
+                              <DropdownMenuItem onClick={() => teacherRemoveUser(p.user_id)} className="text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 cursor-pointer rounded-xl focus:bg-rose-500/10 focus:text-rose-300">
                                 Remove
                               </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -825,36 +912,41 @@ export default function StudyRoom() {
 
           {/* Materials Tab */}
           {activeTab === 'materials' && (
-            <div className="flex-1 flex flex-col min-h-0 bg-slate-100 dark:bg-[#0f111a]">
+            <div className="flex-1 flex flex-col min-h-0 bg-transparent">
               {isTeacher && (
-                <div className="p-3 border-b border-slate-300 dark:border-white/10 shrink-0">
+                <div className="p-4 shrink-0">
                   <input type="file" ref={fileInputRef} onChange={handleUploadMaterial} className="hidden" />
-                  <Button className="w-full bg-blue-600 hover:bg-blue-700 gap-2" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                  <Button className="w-full text-white gap-2 rounded-xl shadow-[0_10px_20px_-10px_rgba(59,130,246,0.5)] border-0 transition-transform hover:scale-[1.02]" style={{ background: "linear-gradient(135deg, #3b82f6, #9c48ea)" }} onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                     <Upload className="h-4 w-4" />
                     {isUploading ? 'Uploading...' : 'Upload Lecture Notes'}
                   </Button>
                 </div>
               )}
               <ScrollArea className="flex-1">
-                <div className="p-3 space-y-2">
+                <div className="p-4 space-y-3">
                   {materials.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500 dark:text-gray-500 text-sm">
-                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      No materials yet{isTeacher ? ' — upload notes above.' : '.'}
+                    <div className="text-center py-10 px-4 bg-slate-100 dark:bg-white/5 rounded-2xl ring-1 ring-slate-200 dark:ring-white/10 text-slate-400 dark:text-gray-400 text-sm">
+                      <div className="w-12 h-12 rounded-full hidden flex items-center justify-center mx-auto mb-3 bg-white/5 ring-1 ring-white/10">
+                        <FileText className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <p className="font-bold text-slate-800 dark:text-white mb-1">No Materials Yet</p>
+                      <p className="text-xs text-slate-500 dark:text-gray-500">{isTeacher ? 'Upload notes using the button above.' : 'Check back later for lecture notes.'}</p>
                     </div>
                   ) : (
                     materials.map(m => (
-                      <div key={m.id} className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-xl border border-slate-300 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <FileText className="h-5 w-5 text-blue-400 shrink-0" />
+                      <div key={m.id} className="group flex items-center justify-between p-3 bg-white/[0.03] hover:bg-white/[0.08] ring-1 ring-white/5 rounded-2xl transition-all shadow-sm">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-full bg-[#3b82f6]/10 flex items-center justify-center shrink-0 group-hover:bg-[#3b82f6]/20 transition-colors">
+                            <FileText className="h-4 w-4 text-[#699cff]" />
+                          </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{m.title}</p>
-                            <p className="text-[10px] text-slate-500 dark:text-gray-500">{new Date(m.created_at).toLocaleDateString()}</p>
+                            <p className="text-sm font-bold text-white truncate">{m.title}</p>
+                            <p className="text-[10px] font-medium tracking-wide text-gray-400 uppercase">{new Date(m.created_at).toLocaleDateString()}</p>
                           </div>
                         </div>
                         <a href={m.file_url} target="_blank" rel="noopener noreferrer" download>
-                          <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full hover:bg-blue-600/20 shrink-0" title="Download">
-                            <Download className="h-4 w-4 text-blue-400" />
+                          <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full hover:bg-white/10 text-white shrink-0 shadow-sm" title="Download">
+                            <Download className="h-4 w-4" />
                           </Button>
                         </a>
                       </div>

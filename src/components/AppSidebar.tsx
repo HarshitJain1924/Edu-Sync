@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Brain, BookOpen, Video, TrendingUp, Users, Settings, LogOut, Gamepad2, GraduationCap, Briefcase, Sparkles, ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { Brain, BookOpen, Video, TrendingUp, Users, Settings, LogOut, Gamepad2, GraduationCap, Briefcase, Sparkles, ChevronLeft, ChevronRight, FileText, LayoutGrid } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 type AppRole = "student" | "teacher" | "admin";
+type NavItem = { path: string; label: string; icon: LucideIcon };
+type NavSection = { title: string; items: NavItem[] };
 
 export const AppSidebar = () => {
   const navigate = useNavigate();
@@ -46,7 +48,7 @@ export const AppSidebar = () => {
 
       const username = profile?.username || user.user_metadata?.username || user.email?.split("@")[0] || "User";
       setUserName(username);
-      
+
       if (profile?.avatar_url) {
         setAvatarUrl(profile.avatar_url);
       }
@@ -70,10 +72,11 @@ export const AppSidebar = () => {
   };
 
   const isActive = (path: string) => location.pathname === path;
+  const activeRole: AppRole = role ?? "student";
 
   const getHomePath = () => {
-    if (role === "admin") return "/admin";
-    if (role === "teacher") return "/teacher";
+    if (activeRole === "admin") return "/admin";
+    if (activeRole === "teacher") return "/teacher";
     return "/dashboard";
   };
 
@@ -91,10 +94,9 @@ export const AppSidebar = () => {
   };
 
   const navItemClass = (path: string) =>
-    `w-full ${isCollapsed ? "justify-center" : "justify-start"} gap-2.5 relative overflow-hidden h-9 ${isCollapsed ? "px-2" : "px-3"} rounded-lg transition-all duration-200 ${
-      isActive(path)
-        ? "bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white border border-slate-300 dark:border-white/15 font-semibold"
-        : "text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5"
+    `w-full ${isCollapsed ? "justify-center" : "justify-start"} gap-2.5 relative overflow-hidden h-9 ${isCollapsed ? "px-2" : "px-3"} rounded-lg transition-all duration-200 ${isActive(path)
+      ? "bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white border border-slate-300 dark:border-white/15 font-semibold"
+      : "text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5"
     }`;
 
   const renderNavItem = (item: { path: string; label: string; icon: LucideIcon }) => (
@@ -110,22 +112,78 @@ export const AppSidebar = () => {
     </Button>
   );
 
-  const learningItems = [
-    { path: getHomePath(), label: "Dashboard", icon: BookOpen },
-    { path: "/study-rooms", label: "Study Rooms", icon: Users },
-    { path: "/videos", label: "Video Learning", icon: Video },
-    { path: "/analytics", label: "Analytics", icon: TrendingUp },
-    { path: "/quiz", label: "Practice Hub", icon: Brain },
-    { path: "/games", label: "Play & Prepare", icon: Gamepad2 },
-  ];
+  const navSectionsByRole: Record<AppRole, NavSection[]> = {
+    student: [
+      {
+        title: "Learning",
+        items: [
+          { path: "/dashboard", label: "Dashboard", icon: BookOpen },
+          { path: "/study-rooms", label: "Study Rooms", icon: Users },
+          { path: "/notes", label: "Notes", icon: FileText },
+          { path: "/videos", label: "Video Learning", icon: Video },
+          { path: "/analytics", label: "Analytics", icon: TrendingUp },
+          { path: "/quiz", label: "Practice Hub", icon: Brain },
+          { path: "/games", label: "Play & Prepare", icon: Gamepad2 },
+        ],
+      },
+      {
+        title: "Placements",
+        items: [
+          { path: "/placement-prep", label: "Placement Prep", icon: GraduationCap },
+          { path: "/jobs", label: "Job Updates", icon: Briefcase },
+          { path: "/resume-builder", label: "Resume Builder", icon: FileText },
+        ],
+      },
+      {
+        title: "Skills",
+        items: [{ path: "/ai-course-creator", label: "Learn A Skill", icon: Sparkles }],
+      },
+    ],
+    teacher: [
+      {
+        title: "Teaching",
+        items: [
+          { path: "/teacher", label: "Teacher Dashboard", icon: LayoutGrid },
+          { path: "/teacher/students", label: "Students", icon: Users },
+          { path: "/teacher/quizzes", label: "Quizzes", icon: Brain },
+          { path: "/teacher/notes", label: "Teaching Notes", icon: FileText },
+          { path: "/teacher/learning-styles", label: "Learning Styles", icon: TrendingUp },
+          { path: "/study-rooms", label: "Classrooms", icon: Video },
+        ],
+      },
+      {
+        title: "Resources",
+        items: [
+          { path: "/notes", label: "Notes Library", icon: BookOpen },
+          { path: "/videos", label: "Video Library", icon: Video },
+        ],
+      },
+    ],
+    admin: [
+      {
+        title: "Administration",
+        items: [
+          { path: "/admin", label: "Admin Dashboard", icon: Settings },
+          { path: "/admin/users", label: "User Management", icon: Users },
+          { path: "/admin/rooms", label: "Room Management", icon: Video },
+          { path: "/admin/sessions", label: "Session Management", icon: LayoutGrid },
+          { path: "/admin/content", label: "Content Moderation", icon: FileText },
+          { path: "/admin/analytics", label: "Platform Analytics", icon: TrendingUp },
+          { path: "/admin/learning-styles", label: "Learning Styles", icon: Brain },
+          { path: "/admin/ai-courses", label: "AI Course Oversight", icon: Sparkles },
+        ],
+      },
+      {
+        title: "Workspace",
+        items: [
+          { path: "/study-rooms", label: "Study Rooms", icon: Users },
+          { path: "/notes", label: "Notes Library", icon: BookOpen },
+        ],
+      },
+    ],
+  };
 
-  const placementItems = [
-    { path: "/placement-prep", label: "Placement Prep", icon: GraduationCap },
-    { path: "/jobs", label: "Job Updates", icon: Briefcase },
-    { path: "/resume-builder", label: "Resume Builder", icon: FileText },
-  ];
-
-  const skillItems = [{ path: "/ai-course-creator", label: "Learn A Skill", icon: Sparkles }];
+  const navSections = navSectionsByRole[activeRole];
 
   return (
     <aside className={`fixed left-0 top-0 h-full overflow-hidden ${isCollapsed ? "w-16" : "w-64"} bg-[linear-gradient(180deg,rgba(250,251,255,0.98)_0%,rgba(244,246,252,0.98)_56%,rgba(239,242,250,0.99)_100%)] dark:bg-[linear-gradient(180deg,rgba(17,18,24,0.98)_0%,rgba(12,13,18,0.98)_56%,rgba(10,11,16,0.99)_100%)] backdrop-blur-md border-r border-slate-200/80 dark:border-white/10 z-50 flex flex-col transition-all duration-300`}>
@@ -137,7 +195,7 @@ export const AppSidebar = () => {
       <div className={`${isCollapsed ? "p-3" : "p-4"} flex-1 min-h-0 flex flex-col`}>
         <button
           type="button"
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(getHomePath())}
           className={`flex items-center ${isCollapsed ? "justify-center" : "gap-2"} mb-3 cursor-pointer group`}
           title="EduSync"
         >
@@ -160,32 +218,16 @@ export const AppSidebar = () => {
 
         <ScrollArea className="flex-1 min-h-0 pr-1">
           <nav className="space-y-3 pb-2">
-            <div className="space-y-1">{renderNavItem({ path: getHomePath(), label: "Home", icon: BookOpen })}</div>
-
-            <div>
-              {!isCollapsed && <p className="px-2 mb-1 text-[10px] uppercase tracking-wider text-slate-500 dark:text-zinc-500 font-semibold">Learning</p>}
-              <div className="space-y-1">{learningItems.slice(1).map(renderNavItem)}</div>
-            </div>
-
-            <div>
-              {!isCollapsed && <p className="px-2 mb-1 text-[10px] uppercase tracking-wider text-slate-500 dark:text-zinc-500 font-semibold">Placements</p>}
-              <div className="space-y-1">{placementItems.map(renderNavItem)}</div>
-            </div>
-
-            <div>
-              {!isCollapsed && <p className="px-2 mb-1 text-[10px] uppercase tracking-wider text-slate-500 dark:text-zinc-500 font-semibold">Skills</p>}
-              <div className="space-y-1">{skillItems.map(renderNavItem)}</div>
-            </div>
-
-            {(role === "teacher" || role === "admin") && (
-              <div>
-                {!isCollapsed && <p className="px-2 mb-1 text-[10px] uppercase tracking-wider text-slate-500 dark:text-zinc-500 font-semibold">Panels</p>}
-                <div className="space-y-1">
-                  {role === "teacher" && renderNavItem({ path: "/teacher", label: "Teacher Panel", icon: Users })}
-                  {role === "admin" && renderNavItem({ path: "/admin", label: "Admin Panel", icon: Settings })}
-                </div>
+            {navSections.map((section) => (
+              <div key={section.title}>
+                {!isCollapsed && (
+                  <p className="px-2 mb-1 text-[10px] uppercase tracking-wider text-slate-500 dark:text-zinc-500 font-semibold">
+                    {section.title}
+                  </p>
+                )}
+                <div className="space-y-1">{section.items.map(renderNavItem)}</div>
               </div>
-            )}
+            ))}
 
           </nav>
         </ScrollArea>
@@ -219,9 +261,9 @@ export const AppSidebar = () => {
             )}
           </button>
 
-          <Button 
-            variant="ghost" 
-            className={`w-full ${isCollapsed ? "justify-center px-0" : "justify-start gap-3"} text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5 transition-colors border border-transparent hover:border-slate-300 dark:hover:border-white/10`} 
+          <Button
+            variant="ghost"
+            className={`w-full ${isCollapsed ? "justify-center px-0" : "justify-start gap-3"} text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5 transition-colors border border-transparent hover:border-slate-300 dark:hover:border-white/10`}
             onClick={handleLogout}
             title="Logout"
           >

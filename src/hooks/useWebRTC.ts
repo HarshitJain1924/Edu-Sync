@@ -23,22 +23,27 @@ export function useWebRTC(roomId: string, displayName: string, userId: string = 
   useEffect(() => {
     let cancelled = false;
     async function init() {
+      let currentStream: MediaStream | undefined = undefined;
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        // Try to get both video and audio
+        currentStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
         if (cancelled) return;
-        setLocalStream(stream);
-        originalVideoTrackRef.current = stream.getVideoTracks()[0] || null;
+        setLocalStream(currentStream);
+        originalVideoTrackRef.current = currentStream.getVideoTracks()[0] || null;
       } catch (err: any) {
-        console.error("Failed to get media devices:", err);
-        // If user denies permission, continue without media
-        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-          console.warn("Camera/Microphone permission denied. Continuing without media.");
-          // Create empty stream so WebRTC can still connect for chat
-          setLocalStream(new MediaStream());
-        } else {
-          throw err;
+        console.warn("Failed to get video+audio, trying audio only", err);
+        try {
+          // Fallback to audio only
+          currentStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          if (cancelled) return;
+          setLocalStream(currentStream);
+        } catch (err2) {
+          console.error("Failed to get any media devices:", err2);
+          // Last fallback: empty stream so signaling still works
+          currentStream = new MediaStream();
+          setLocalStream(currentStream);
         }
-        if (cancelled) return;
       }
 
       const socket = io(base, { transports: ["websocket"] });
@@ -54,50 +59,69 @@ export function useWebRTC(roomId: string, displayName: string, userId: string = 
          setConnectionStatus("reconnecting");
       });
 
-      socket.emit("join-room", { roomId, name: displayName });
+      socket.emit("join-room", { roomId, name: displayName, userId });
 
       socket.on("user-joined", ({ socketId, name: remoteName }) => {
         const peer = new Peer({ 
           initiator: true, 
           trickle: true, 
-          stream: localStream || undefined,
+          stream: currentStream,
           config: {
             iceServers: [
               { urls: "stun:stun.l.google.com:19302" },
-              { urls: "stun:stun1.l.google.com:19302" },
-              { urls: "stun:stun2.l.google.com:19302" }
+              { urls: "stun:stun1.l.google.com:19302" }
             ]
           }
         });
         peersRef.current[socketId] = peer;
-        setPeers((ps) => [...ps, { id: socketId, stream: null, name: remoteName }]);
-        peer.on("signal", (data) => socket.emit("signal", { to: socketId, data }));
+        setPeers((ps) => [...ps, { id: socketId, stream: null, name: remoteName || "Participant" }]);
+
+        peer.on("signal", (data) => {
+          socket.emit("signal", { to: socketId, data, name: displayName });
+        });
+
         peer.on("stream", (remote) => {
           setPeers((ps) => ps.map((p) => (p.id === socketId ? { ...p, stream: remote } : p)));
         });
+
+        peer.on("track", (track, stream) => {
+          console.log(`Track received from ${socketId}: ${track.kind}`);
+          setPeers((ps) => ps.map((p) => (p.id === socketId ? { ...p, stream: new MediaStream(stream.getTracks()) } : p)));
+        });
       });
 
-      socket.on("signal", ({ from, data }) => {
+      socket.on("signal", ({ from, data, name: remoteName }) => {
         let peer = peersRef.current[from];
         if (!peer) {
           peer = new Peer({ 
             initiator: false, 
             trickle: true, 
-            stream: localStream || undefined,
+            stream: currentStream,
             config: {
               iceServers: [
                 { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun2.l.google.com:19302" }
+                { urls: "stun:stun1.l.google.com:19302" }
               ]
             }
           });
           peersRef.current[from] = peer;
-          setPeers((ps) => [...ps, { id: from, stream: null }]);
-          peer.on("signal", (s) => socket.emit("signal", { to: from, data: s }));
+          setPeers((ps) => [...ps, { id: from, stream: null, name: remoteName || "Participant" }]);
+
+          peer.on("signal", (s) => {
+            socket.emit("signal", { to: from, data: s, name: displayName });
+          });
+
           peer.on("stream", (remote) => {
             setPeers((ps) => ps.map((p) => (p.id === from ? { ...p, stream: remote } : p)));
           });
+
+          peer.on("track", (track, stream) => {
+            console.log(`Track received from ${from}: ${track.kind}`);
+            setPeers((ps) => ps.map((p) => (p.id === from ? { ...p, stream: new MediaStream(stream.getTracks()) } : p)));
+          });
+        } else if (remoteName) {
+           // Update name if we received it in a subsequent signal
+           setPeers(ps => ps.map(p => p.id === from ? { ...p, name: remoteName } : p));
         }
         peer.signal(data);
       });
@@ -109,7 +133,9 @@ export function useWebRTC(roomId: string, displayName: string, userId: string = 
         setPeers((ps) => ps.filter((p) => p.id !== socketId));
       });
     }
+
     init();
+
     return () => {
       cancelled = true;
       Object.values(peersRef.current).forEach((p) => p.destroy());
@@ -119,41 +145,46 @@ export function useWebRTC(roomId: string, displayName: string, userId: string = 
     };
   }, [roomId, displayName]);
 
-  // Auto camera off when tab is hidden + restore on refocus
+  // Sync local stream tracks to all active peers when localStream changes OR when new peers join
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden) {
-        localStream?.getVideoTracks().forEach(t => t.enabled = false);
-      } else {
-        localStream?.getVideoTracks().forEach(t => t.enabled = camOn);
-      }
-    };
+    if (!localStream) return;
+    
+    const videoTrack = localStream.getVideoTracks()[0];
+    const audioTrack = localStream.getAudioTracks()[0];
 
-    const restartCamera = async () => {
-      // Only restart if cam should be on but no active video tracks
-      if (!localStream || !camOn) return;
-      const activeTracks = localStream.getVideoTracks().filter(t => t.readyState === 'live');
-      if (activeTracks.length === 0) {
-        try {
-          const newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          const newTrack = newStream.getVideoTracks()[0];
-          if (newTrack) {
-            const merged = new MediaStream([newTrack, ...localStream.getAudioTracks()]);
-            setLocalStream(merged);
+    const activePeers = Object.values(peersRef.current);
+    activePeers.forEach((peer) => {
+      try {
+        const pc = (peer as any)._pc as RTCPeerConnection;
+        if (!pc || pc.signalingState === "closed") return;
+        
+        const senders = pc.getSenders();
+        
+        if (videoTrack) {
+          const vSender = senders.find(s => s.track && s.track.kind === 'video');
+          if (vSender) {
+            vSender.replaceTrack(videoTrack).catch(e => console.warn('Video track replace failed', e));
+          } else {
+            // If no sender exists yet, it might be a new peer waiting for negotiation
+            try { (peer as any).addTrack(videoTrack, localStream); } catch {}
           }
-        } catch (e) {
-          console.warn('Camera restart failed', e);
         }
+        
+        if (audioTrack) {
+          const aSender = senders.find(s => s.track && s.track.kind === 'audio');
+          if (aSender) {
+            aSender.replaceTrack(audioTrack).catch(e => console.warn('Audio track replace failed', e));
+          } else {
+            try { (peer as any).addTrack(audioTrack, localStream); } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to sync tracks to peer', e);
       }
-    };
+    });
 
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', restartCamera);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', restartCamera);
-    };
-  }, [localStream, camOn]);
+    console.log(`Synced tracks to ${activePeers.length} peers. V:${!!videoTrack} A:${!!audioTrack}`);
+  }, [localStream, peers.length]);
 
   // Sync local hardware states to Supabase Room Participants table
   useEffect(() => {

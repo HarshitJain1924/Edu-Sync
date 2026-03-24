@@ -19,6 +19,15 @@ interface UserWithRoles {
   role: AppRole;
 }
 
+interface TeacherStudentAssignment {
+  id: string;
+  teacher_id: string;
+  student_id: string;
+  teacher_name: string;
+  student_name: string;
+  created_at: string;
+}
+
 const UserManagement = () => {
   const { isAuthorized, isLoading } = useRequireRole('admin');
   const navigate = useNavigate();
@@ -28,6 +37,10 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | AppRole>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [assignments, setAssignments] = useState<TeacherStudentAssignment[]>([]);
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>("");
+  const [selectedStudentId, setSelectedStudentId] = useState<string>("");
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     if (isAuthorized) {
@@ -64,6 +77,7 @@ const UserManagement = () => {
       });
 
       setUsers(usersWithRoles);
+      await fetchAssignments(usersWithRoles);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -72,6 +86,96 @@ const UserManagement = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAssignments = async (usersSource?: UserWithRoles[]) => {
+    const userPool = usersSource || users;
+    const nameMap = new Map(userPool.map((u) => [u.id, u.email || 'Unknown user']));
+
+    const { data, error } = await supabase
+      .from('teacher_student_assignments' as any)
+      .select('id, teacher_id, student_id, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const parsed: TeacherStudentAssignment[] = (data || []).map((row: any) => ({
+      id: row.id,
+      teacher_id: row.teacher_id,
+      student_id: row.student_id,
+      teacher_name: nameMap.get(row.teacher_id) || 'Unknown teacher',
+      student_name: nameMap.get(row.student_id) || 'Unknown student',
+      created_at: row.created_at,
+    }));
+
+    setAssignments(parsed);
+  };
+
+  const handleAssignStudent = async () => {
+    if (!selectedTeacherId || !selectedStudentId) {
+      toast({
+        title: 'Missing selection',
+        description: 'Please select both teacher and student.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setAssigning(true);
+      const { data: authData } = await supabase.auth.getUser();
+      const adminUser = authData.user;
+      if (!adminUser) throw new Error('Not authenticated');
+
+      const { error } = await supabase
+        .from('teacher_student_assignments' as any)
+        .upsert(
+          {
+            teacher_id: selectedTeacherId,
+            student_id: selectedStudentId,
+            assigned_by: adminUser.id,
+          },
+          { onConflict: 'teacher_id,student_id' }
+        );
+
+      if (error) throw error;
+
+      toast({
+        title: 'Assignment updated',
+        description: 'Student has been assigned to teacher.',
+      });
+
+      setSelectedStudentId("");
+      await fetchAssignments();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to assign student.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleUnassign = async (assignmentId: string) => {
+    try {
+      const { error } = await supabase
+        .from('teacher_student_assignments' as any)
+        .delete()
+        .eq('id', assignmentId);
+
+      if (error) throw error;
+
+      setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+      toast({ title: 'Assignment removed' });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to remove assignment.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -119,6 +223,9 @@ const UserManagement = () => {
     const matchesSearch = user.email.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesRole && matchesSearch;
   });
+
+  const teachers = users.filter((u) => u.role === 'teacher');
+  const students = users.filter((u) => u.role === 'student');
 
   const getRoleBadgeColor = (role: AppRole) => {
     switch (role) {
@@ -230,6 +337,69 @@ const UserManagement = () => {
                   ))
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-soft mt-6">
+            <CardHeader>
+              <CardTitle>Teacher-Student Assignments</CardTitle>
+              <CardDescription>
+                Assign students to teachers. Student quiz visibility and teacher analytics are scoped by this mapping.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Teacher</p>
+                  <Select value={selectedTeacherId} onValueChange={setSelectedTeacherId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select teacher" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teachers.map((teacher) => (
+                        <SelectItem key={teacher.id} value={teacher.id}>{teacher.email}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Student</p>
+                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select student" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>{student.email}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={handleAssignStudent} disabled={assigning || !selectedTeacherId || !selectedStudentId}>
+                  {assigning ? 'Assigning...' : 'Assign Student'}
+                </Button>
+              </div>
+
+              {assignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No assignments yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {assignments.map((assignment) => (
+                    <div key={assignment.id} className="p-3 rounded-lg border border-border bg-card flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-medium">{assignment.student_name}</p>
+                        <p className="text-xs text-muted-foreground">Teacher: {assignment.teacher_name}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <p className="text-xs text-muted-foreground">{new Date(assignment.created_at).toLocaleDateString()}</p>
+                        <Button variant="outline" size="sm" onClick={() => handleUnassign(assignment.id)}>
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

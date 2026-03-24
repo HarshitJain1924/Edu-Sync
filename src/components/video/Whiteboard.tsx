@@ -231,16 +231,17 @@ export default function Whiteboard({ roomId, userId, isReadOnly = false }: White
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-slate-950 rounded-lg overflow-hidden border border-border relative group">
+    <div className="flex flex-col h-full w-full bg-slate-50 dark:bg-[#0a0a0a] rounded-[2rem] overflow-hidden ring-1 ring-slate-200 dark:ring-white/5 relative group shadow-[0_0_40px_rgba(0,0,0,0.1)] dark:shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-colors">
         {/* Toolbar - hidden when read-only for students */}
-       <div className={`absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md p-2 rounded-full border border-white/10 shadow-xl z-10 transition-opacity duration-300 ${isReadOnly ? 'opacity-0 pointer-events-none' : 'opacity-20 group-hover:opacity-100'}`}>
+       <div className={`absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/80 dark:bg-[#1a1919]/80 backdrop-blur-3xl p-2.5 rounded-full ring-1 ring-slate-200 dark:ring-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-10 transition-all duration-500 ease-in-out ${isReadOnly ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-40 hover:opacity-100 hover:scale-100'}`}>
          
-         <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+         <div className="flex items-center gap-2 pr-3 mr-1 relative after:absolute after:right-0 after:top-1/2 after:-translate-y-1/2 after:w-px after:h-6 after:bg-white/10">
            {COLORS.map(c => (
               <button
                 key={c}
                 onClick={() => { setColor(c); setIsEraser(false); }}
-                className={`w-6 h-6 rounded-full border-2 transition-transform ${color === c && !isEraser ? 'scale-125 border-white' : 'border-transparent hover:scale-110'}`}
+                className={`w-7 h-7 rounded-full transition-all duration-300 shadow-inner 
+                           ${color === c && !isEraser ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-[#1a1919] z-10' : 'hover:scale-110 opacity-70 hover:opacity-100'}`}
                 style={{ backgroundColor: c }}
               />
            ))}
@@ -250,20 +251,20 @@ export default function Whiteboard({ roomId, userId, isReadOnly = false }: White
            size="icon" 
            variant={isEraser ? "secondary" : "ghost"} 
            onClick={() => setIsEraser(true)}
-           className="h-8 w-8 rounded-full"
+           className={`h-9 w-9 rounded-full transition-colors ${isEraser ? 'bg-white/20 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
            title="Eraser"
          >
-           <Eraser className="h-4 w-4" />
+           <Eraser className="h-4.5 w-4.5" />
          </Button>
 
          <Button 
            size="icon" 
            variant="ghost" 
            onClick={undo}
-           className="h-8 w-8 rounded-full text-gray-300 hover:text-white"
+           className="h-9 w-9 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
            title="Undo"
          >
-           <Undo className="h-4 w-4" />
+           <Undo className="h-4.5 w-4.5" />
          </Button>
 
          <div className="w-[1px] h-6 bg-white/10 mx-1" />
@@ -272,19 +273,19 @@ export default function Whiteboard({ roomId, userId, isReadOnly = false }: White
            size="icon" 
            variant="ghost" 
            onClick={clearBoard}
-           className="h-8 w-8 rounded-full text-red-400 hover:text-red-300 hover:bg-red-400/10"
+           className="h-9 w-9 rounded-full text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
            title="Clear Board"
          >
-           <Trash2 className="h-4 w-4" />
+           <Trash2 className="h-4.5 w-4.5" />
          </Button>
        </div>
 
        {/* Canvas */}
        <div className="flex-1 w-full h-full relative cursor-crosshair">
          {isReadOnly && (
-           <div className="absolute inset-0 z-10 flex items-end justify-center pb-6 pointer-events-none">
-             <div className="bg-slate-900/80 backdrop-blur-sm border border-white/10 px-4 py-2 rounded-full text-xs text-gray-400 flex items-center gap-2">
-               🔒 Whiteboard is read-only — teacher controls drawing
+           <div className="absolute inset-0 z-10 flex items-end justify-center pb-8 pointer-events-none">
+             <div className="bg-[#0e0e0e]/80 backdrop-blur-xl ring-1 ring-white/10 px-5 py-2.5 rounded-full text-xs font-medium tracking-wide text-gray-400 flex items-center gap-2 shadow-2xl">
+               <span className="text-[#3b82f6]">🔒</span> Whiteboard is read-only — host controls drawing
              </div>
            </div>
          )}

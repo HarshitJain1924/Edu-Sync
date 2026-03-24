@@ -25,21 +25,55 @@ CREATE TABLE IF NOT EXISTS public.learning_styles (
   UNIQUE(user_id)
 );
 
+-- Defensive: older environments may have pre-existing tables without user_id.
+ALTER TABLE public.learning_styles
+  ADD COLUMN IF NOT EXISTS user_id uuid;
+
 ALTER TABLE public.learning_styles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own learning style" ON public.learning_styles;
 CREATE POLICY "Users can view own learning style" ON public.learning_styles
   FOR SELECT TO authenticated USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can insert own learning style" ON public.learning_styles;
 CREATE POLICY "Users can insert own learning style" ON public.learning_styles
   FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can update own learning style" ON public.learning_styles;
 CREATE POLICY "Users can update own learning style" ON public.learning_styles
   FOR UPDATE TO authenticated USING (user_id = auth.uid());
 
-CREATE POLICY "Teachers can view all learning styles" ON public.learning_styles
-  FOR SELECT TO authenticated USING (
-    public.has_role(auth.uid(), 'teacher') OR public.has_role(auth.uid(), 'admin')
+DO $$
+DECLARE
+  roles_user_col text;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'user_roles' AND column_name = 'user_id'
+  ) THEN
+    roles_user_col := 'user_id';
+  ELSIF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'user_roles' AND column_name = 'id'
+  ) THEN
+    roles_user_col := 'id';
+  ELSE
+    RAISE EXCEPTION 'user_roles requires either user_id or id column for role policies';
+  END IF;
+
+  EXECUTE 'DROP POLICY IF EXISTS "Teachers can view all learning styles" ON public.learning_styles';
+  EXECUTE format(
+    'CREATE POLICY "Teachers can view all learning styles" ON public.learning_styles
+       FOR SELECT TO authenticated USING (
+         EXISTS (
+           SELECT 1 FROM public.user_roles ur
+           WHERE ur.%I = auth.uid()
+             AND ur.role::text IN (''teacher'', ''admin'')
+         )
+       )',
+    roles_user_col
   );
+END $$;
 
 -- 4. Create session_materials table
 CREATE TABLE IF NOT EXISTS public.session_materials (
@@ -53,12 +87,15 @@ CREATE TABLE IF NOT EXISTS public.session_materials (
 
 ALTER TABLE public.session_materials ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can view session materials" ON public.session_materials;
 CREATE POLICY "Anyone can view session materials" ON public.session_materials
   FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Authenticated users can upload materials" ON public.session_materials;
 CREATE POLICY "Authenticated users can upload materials" ON public.session_materials
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = uploaded_by);
 
+DROP POLICY IF EXISTS "Uploaders can delete their materials" ON public.session_materials;
 CREATE POLICY "Uploaders can delete their materials" ON public.session_materials
   FOR DELETE TO authenticated USING (auth.uid() = uploaded_by);
 
@@ -76,12 +113,15 @@ CREATE TABLE IF NOT EXISTS public.study_sessions (
 
 ALTER TABLE public.study_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Teachers can view own sessions" ON public.study_sessions;
 CREATE POLICY "Teachers can view own sessions" ON public.study_sessions
   FOR SELECT TO authenticated USING (teacher_id = auth.uid());
 
+DROP POLICY IF EXISTS "Teachers can create sessions" ON public.study_sessions;
 CREATE POLICY "Teachers can create sessions" ON public.study_sessions
   FOR INSERT TO authenticated WITH CHECK (teacher_id = auth.uid());
 
+DROP POLICY IF EXISTS "Teachers can update own sessions" ON public.study_sessions;
 CREATE POLICY "Teachers can update own sessions" ON public.study_sessions
   FOR UPDATE TO authenticated USING (teacher_id = auth.uid());
 
@@ -102,24 +142,59 @@ CREATE TABLE IF NOT EXISTS public.ai_generated_courses (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Defensive: older environments may have pre-existing tables without user_id.
+ALTER TABLE public.ai_generated_courses
+  ADD COLUMN IF NOT EXISTS user_id uuid;
+
 ALTER TABLE public.ai_generated_courses ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own ai courses" ON public.ai_generated_courses;
 CREATE POLICY "Users can view own ai courses" ON public.ai_generated_courses
   FOR SELECT TO authenticated USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can create ai courses" ON public.ai_generated_courses;
 CREATE POLICY "Users can create ai courses" ON public.ai_generated_courses
   FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can update own ai courses" ON public.ai_generated_courses;
 CREATE POLICY "Users can update own ai courses" ON public.ai_generated_courses
   FOR UPDATE TO authenticated USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can delete own ai courses" ON public.ai_generated_courses;
 CREATE POLICY "Users can delete own ai courses" ON public.ai_generated_courses
   FOR DELETE TO authenticated USING (user_id = auth.uid());
 
-CREATE POLICY "Admins can view all ai courses" ON public.ai_generated_courses
-  FOR SELECT TO authenticated USING (
-    public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'teacher')
+DO $$
+DECLARE
+  roles_user_col text;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'user_roles' AND column_name = 'user_id'
+  ) THEN
+    roles_user_col := 'user_id';
+  ELSIF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'user_roles' AND column_name = 'id'
+  ) THEN
+    roles_user_col := 'id';
+  ELSE
+    RAISE EXCEPTION 'user_roles requires either user_id or id column for role policies';
+  END IF;
+
+  EXECUTE 'DROP POLICY IF EXISTS "Admins can view all ai courses" ON public.ai_generated_courses';
+  EXECUTE format(
+    'CREATE POLICY "Admins can view all ai courses" ON public.ai_generated_courses
+       FOR SELECT TO authenticated USING (
+         EXISTS (
+           SELECT 1 FROM public.user_roles ur
+           WHERE ur.%I = auth.uid()
+             AND ur.role::text IN (''admin'', ''teacher'')
+         )
+       )',
+    roles_user_col
   );
+END $$;
 
 -- 7. Create placement_scores table
 CREATE TABLE IF NOT EXISTS public.placement_scores (
@@ -134,11 +209,17 @@ CREATE TABLE IF NOT EXISTS public.placement_scores (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Defensive: older environments may have pre-existing tables without user_id.
+ALTER TABLE public.placement_scores
+  ADD COLUMN IF NOT EXISTS user_id uuid;
+
 ALTER TABLE public.placement_scores ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own scores" ON public.placement_scores;
 CREATE POLICY "Users can view own scores" ON public.placement_scores
   FOR SELECT TO authenticated USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can insert own scores" ON public.placement_scores;
 CREATE POLICY "Users can insert own scores" ON public.placement_scores
   FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
 
@@ -154,10 +235,16 @@ CREATE TABLE IF NOT EXISTS public.room_whiteboard_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Defensive: older environments may have pre-existing tables without user_id.
+ALTER TABLE public.room_whiteboard_events
+  ADD COLUMN IF NOT EXISTS user_id uuid;
+
 ALTER TABLE public.room_whiteboard_events ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can view whiteboard events" ON public.room_whiteboard_events;
 CREATE POLICY "Anyone can view whiteboard events" ON public.room_whiteboard_events
   FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Authenticated users can create whiteboard events" ON public.room_whiteboard_events;
 CREATE POLICY "Authenticated users can create whiteboard events" ON public.room_whiteboard_events
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);

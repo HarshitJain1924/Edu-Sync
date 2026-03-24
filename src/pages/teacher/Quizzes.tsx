@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useRequireRole } from "@/hooks/useRequireRole";
+import { GoogleGenAI } from "@google/genai";
 
 interface QuizSet {
   id: string;
@@ -26,6 +27,59 @@ interface QuizQuestion {
   correct_answer: string;
   order_index: number;
 }
+
+interface QuizAttempt {
+  user_id: string;
+  student_name: string;
+  score: number;
+  correct_answers: number;
+  total_questions: number;
+  time_taken: number;
+  completed_at: string | null;
+}
+
+interface GeneratedQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: string;
+}
+
+const MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const extractGeminiText = (response: any): string => {
+  if (response && typeof response.text === "function") return response.text();
+  if (response && typeof response.text === "string") return response.text;
+  if (response?.candidates?.[0]?.content?.parts?.[0]?.text) return response.candidates[0].content.parts[0].text;
+  throw new Error("Unable to extract text from Gemini response");
+};
+
+const callGeminiWithRetry = async (ai: InstanceType<typeof GoogleGenAI>, prompt: string): Promise<string> => {
+  for (const model of MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await ai.models.generateContent({ model, contents: prompt });
+        const response = (result as any).response || result;
+        return extractGeminiText(response);
+      } catch (err: any) {
+        const msg = err?.message || "";
+        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
+          const delayMatch = msg.match(/retry\s+in\s+([\d.]+)/i) || msg.match(/retryDelay.*?(\d+)/);
+          const waitSecs = delayMatch ? Math.ceil(parseFloat(delayMatch[1])) + 2 : 35;
+          if (attempt === 0) {
+            await sleep(waitSecs * 1000);
+            continue;
+          }
+          break;
+        }
+        throw err;
+      }
+    }
+  }
+
+  throw new Error("All AI models are rate-limited. Please retry in 1-2 minutes.");
+};
 
 export default function TeacherQuizzes() {
   useRequireRole("teacher");
@@ -48,6 +102,8 @@ export default function TeacherQuizzes() {
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
+  const [attemptsLoading, setAttemptsLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -75,6 +131,17 @@ export default function TeacherQuizzes() {
       }
     })();
   }, [toast]);
+
+  useEffect(() => {
+    if (!selectedQuiz) return;
+
+    fetchAttempts(selectedQuiz.id);
+    const intervalId = setInterval(() => {
+      fetchAttempts(selectedQuiz.id);
+    }, 15000);
+
+    return () => clearInterval(intervalId);
+  }, [selectedQuiz]);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,6 +216,69 @@ export default function TeacherQuizzes() {
   const handleSelectQuiz = (quiz: QuizSet) => {
     setSelectedQuiz(quiz);
     fetchQuestions(quiz.id);
+    fetchAttempts(quiz.id);
+  };
+
+  const fetchAttempts = async (quizId: string) => {
+    try {
+      setAttemptsLoading(true);
+
+      const { data: rows, error } = await supabase
+        .from("user_progress")
+        .select("user_id, progress_data, updated_at")
+        .eq("content_type", "quiz_set")
+        .eq("content_id", quizId)
+        .order("updated_at", { ascending: false });
+
+      if (error) throw error;
+
+      const userIds = Array.from(new Set((rows || []).map((row: any) => row.user_id)));
+      if (userIds.length === 0) {
+        setAttempts([]);
+        return;
+      }
+
+      const { data: roleRows } = await supabase
+        .from("user_roles")
+        .select("user_id, role")
+        .in("user_id", userIds);
+
+      const allowedStudentIds = new Set(
+        (roleRows || [])
+          .filter((row: any) => row.role === "student")
+          .map((row: any) => row.user_id)
+      );
+
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, username")
+        .in("id", userIds);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p.username || "Unknown student"]));
+
+      const parsed: QuizAttempt[] = (rows || [])
+        .filter((row: any) => allowedStudentIds.has(row.user_id))
+        .map((row: any) => ({
+          user_id: row.user_id,
+          student_name: profileMap.get(row.user_id) || "Unknown student",
+          score: row.progress_data?.score || 0,
+          correct_answers: row.progress_data?.correct_answers || 0,
+          total_questions: row.progress_data?.total_questions || 0,
+          time_taken: row.progress_data?.time_taken || 0,
+          completed_at: row.progress_data?.completed_at || row.updated_at || null,
+        }));
+
+      setAttempts(parsed);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to load student attempts.",
+        variant: "destructive",
+      });
+      setAttempts([]);
+    } finally {
+      setAttemptsLoading(false);
+    }
   };
 
   const handleAddQuestion = async (e: React.FormEvent) => {
@@ -246,6 +376,52 @@ export default function TeacherQuizzes() {
     }
   };
 
+  const handleDeleteQuiz = async (quiz: QuizSet) => {
+    try {
+      setLoading(true);
+
+      const { error: deleteQuestionsError } = await supabase
+        .from("quiz_questions")
+        .delete()
+        .eq("quiz_id", quiz.id);
+
+      if (deleteQuestionsError) throw deleteQuestionsError;
+
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData.user;
+      if (!user) throw new Error("Not authenticated");
+
+      const { error: deleteQuizError } = await supabase
+        .from("quiz_sets")
+        .delete()
+        .eq("id", quiz.id)
+        .eq("created_by", user.id);
+
+      if (deleteQuizError) throw deleteQuizError;
+
+      setQuizzes((prev) => prev.filter((q) => q.id !== quiz.id));
+
+      if (selectedQuiz?.id === quiz.id) {
+        setSelectedQuiz(null);
+        setQuestions([]);
+        setAttempts([]);
+      }
+
+      toast({
+        title: "Quiz deleted",
+        description: `"${quiz.title}" and its questions have been removed.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to delete quiz.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between shadow-soft">
@@ -323,6 +499,7 @@ export default function TeacherQuizzes() {
               <Button
                 disabled={aiLoading || !aiTopic.trim()}
                 onClick={async () => {
+                  let createdQuizSetId: string | null = null;
                   if (!aiTopic.trim()) {
                     toast({
                       title: "Missing title",
@@ -334,10 +511,8 @@ export default function TeacherQuizzes() {
 
                   setAiLoading(true);
                   try {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    if (!session) {
-                      throw new Error("Not authenticated");
-                    }
+                    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+                    if (!geminiKey) throw new Error("Gemini API key missing. Set VITE_GEMINI_API_KEY.");
 
                     // First create the quiz set
                     const { data: { user } } = await supabase.auth.getUser();
@@ -355,27 +530,25 @@ export default function TeacherQuizzes() {
                       .single();
 
                     if (quizError) throw quizError;
+                    createdQuizSetId = quizSet.id;
 
-                    // Now generate questions with AI
-                    const res = await fetch(
-                      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-quiz`,
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${session.access_token}`,
-                        },
-                        body: JSON.stringify({ topic: aiTopic.trim(), numQuestions: 5 }),
-                      }
-                    );
+                    // Generate questions with the same direct Gemini flow used by Placement Prep.
+                    const ai = new GoogleGenAI({ apiKey: geminiKey });
+                    const prompt = `Generate 5 placement-focused MCQs on "${aiTopic.trim()}".
 
-                    const data = await res.json();
-                    if (!res.ok) {
-                      console.error("Edge Function error:", data);
-                      throw new Error(data.error || "Failed to generate quiz");
-                    }
+Each question must include:
+- "question": string
+- "options": array of exactly 4 options
+- "correctAnswer": exact text matching one option
 
-                    const generatedQuestions = (data.questions || []) as {
+Return ONLY a valid JSON array of question objects. No markdown.`;
+
+                    const raw = await callGeminiWithRetry(ai, prompt);
+                    const clean = String(raw).replace(/```json/g, "").replace(/```/g, "").trim();
+                    const match = clean.match(/\[[\s\S]*\]/);
+                    if (!match) throw new Error("Invalid AI response format.");
+
+                    const generatedQuestions = JSON.parse(match[0]) as {
                       question: string;
                       options: string[];
                       correctAnswer: string;
@@ -412,6 +585,9 @@ export default function TeacherQuizzes() {
                     setQuizzes((prev) => [quizSet, ...prev]);
                     setAiTopic("");
                   } catch (err: any) {
+                    if (createdQuizSetId) {
+                      await supabase.from("quiz_sets").delete().eq("id", createdQuizSetId);
+                    }
                     if (import.meta.env.DEV) console.error("AI quiz error", err);
                     toast({
                       title: "Generation failed",
@@ -441,22 +617,36 @@ export default function TeacherQuizzes() {
             ) : (
               <div className="space-y-3">
                 {quizzes.map((quiz) => (
-                  <button
+                  <div
                     key={quiz.id}
-                    type="button"
-                    onClick={() => handleSelectQuiz(quiz)}
-                    className="w-full flex items-center justify-between p-3 bg-muted rounded-lg text-left hover:bg-muted/80 transition"
+                    className="w-full flex items-center justify-between p-3 bg-muted rounded-lg gap-3"
                   >
                     <div>
-                      <p className="font-medium">{quiz.title}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectQuiz(quiz)}
+                        className="font-medium hover:underline text-left"
+                      >
+                        {quiz.title}
+                      </button>
                       <p className="text-xs text-muted-foreground">
                         {quiz.topic} {quiz.description && `• ${quiz.description}`}
                       </p>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(quiz.created_at).toLocaleDateString()}
-                    </span>
-                  </button>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(quiz.created_at).toLocaleDateString()}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteQuiz(quiz)}
+                        disabled={loading}
+                      >
+                        Delete Quiz
+                      </Button>
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -562,6 +752,34 @@ export default function TeacherQuizzes() {
                       </Button>
                     </div>
                   ))
+                )}
+              </div>
+
+              <div className="pt-4 border-t space-y-3">
+                <h3 className="text-base font-semibold">Student Attempts</h3>
+                {attemptsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading attempts...</p>
+                ) : attempts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No student attempts yet for this quiz.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {attempts.map((attempt) => (
+                      <div key={`${attempt.user_id}-${attempt.completed_at || "latest"}`} className="p-3 rounded-lg bg-muted flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-medium">{attempt.student_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {attempt.correct_answers}/{attempt.total_questions} correct • {Math.floor(attempt.time_taken / 60)}m {attempt.time_taken % 60}s
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-primary">{attempt.score}%</p>
+                          <p className="text-xs text-muted-foreground">
+                            {attempt.completed_at ? new Date(attempt.completed_at).toLocaleString() : "-"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </CardContent>
