@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -6,14 +6,24 @@ import {
   Brain, BookOpen, Clock, ChevronRight, Trophy, Target, TrendingUp,
   Zap, CheckCircle2, XCircle, ArrowRight, BarChart3, Award,
   Timer, Sparkles, GraduationCap, Building2, Code2, Users, ChevronLeft,
-  RotateCcw, AlertTriangle
+  RotateCcw, AlertTriangle, Upload, Trash2, BookMarked, Play
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { useUserRole } from "@/hooks/useUserRole";
+import { usePlacementQuestionsStats, useRefreshQuestions } from "@/hooks/usePlacementQuestions";
 import { supabase } from "@/integrations/supabase/client";
 import AppSidebar from "@/components/AppSidebar";
+import { PracticeMode } from "@/components/PracticeMode";
 import { GoogleGenAI } from "@google/genai";
 import { runCode } from "@/lib/compiler";
+import {
+  parsePlacementQuestionBank,
+  filterCompanyQuestionsByDifficulty,
+  parsePlacementQuestionsFromText,
+  inferCompanyId,
+  normalizeCompanyId,
+} from "@/lib/placement-question-bank";
 
 // ---------- Types ----------
 interface QuizQuestion {
@@ -21,6 +31,7 @@ interface QuizQuestion {
   options: string[];
   correctAnswer: string;
   explanation: string;
+  difficulty?: string;
 }
 
 interface CodingQuestion {
@@ -78,12 +89,37 @@ const DIFFICULTIES = [
   { id: "placement", label: "Placement Level", color: "text-purple-400 bg-purple-500/15 border-purple-500/30" },
 ];
 
+const QUESTION_BANK_STORAGE_KEY = "placement_question_bank_v1";
+
+const shuffle = <T,>(arr: T[]): T[] => {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+};
+
+interface PdfParseApiResponse {
+  text?: string;
+  questions?: unknown[];
+}
+
+const asUnknownRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+};
+
 // ---------- Component ----------
 const PlacementPrep = () => {
   useRequireAuth();
   const navigate = useNavigate();
+  const { isAdmin, loading: roleLoading } = useUserRole();
+  const { data: qStats } = usePlacementQuestionsStats();
+  const { invalidateAll } = useRefreshQuestions();
 
   // UI states
+  const [mode, setMode] = useState<"quiz" | "practice">("quiz"); // NEW: Mode toggle
   const [activeTab, setActiveTab] = useState<"home" | "quiz" | "results">("home");
   const [quizType, setQuizType] = useState<"topic" | "company" | "mock" | "coding">("topic");
   const [selectedTopic, setSelectedTopic] = useState("");
@@ -105,11 +141,14 @@ const PlacementPrep = () => {
   const [genProgress, setGenProgress] = useState("");
   const [executionResult, setExecutionResult] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const [questionBank, setQuestionBank] = useState<Record<string, QuizQuestion[]>>({});
+  const [bankSummary, setBankSummary] = useState({ companies: 0, questions: 0 });
 
   // Timer
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bankFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Results & analytics
   const [scores, setScores] = useState<ScoreEntry[]>([]);
@@ -122,6 +161,35 @@ const PlacementPrep = () => {
   useEffect(() => {
     fetchScores();
     fetchLeaderboard();
+
+    try {
+      const raw = localStorage.getItem(QUESTION_BANK_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = parsePlacementQuestionBank(JSON.parse(raw));
+      const normalizedCompanies: Record<string, QuizQuestion[]> = {};
+      let totalQuestions = 0;
+
+      Object.entries(parsed.companies).forEach(([company, rows]) => {
+        const normalizedRows: QuizQuestion[] = rows.map((q) => ({
+          question: q.question,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation || "No explanation provided.",
+          difficulty: q.difficulty,
+        }));
+        normalizedCompanies[company] = normalizedRows;
+        totalQuestions += normalizedRows.length;
+      });
+
+      setQuestionBank(normalizedCompanies);
+      setBankSummary({
+        companies: Object.keys(normalizedCompanies).length,
+        questions: totalQuestions,
+      });
+    } catch {
+      localStorage.removeItem(QUESTION_BANK_STORAGE_KEY);
+    }
   }, []);
 
   useEffect(() => {
@@ -242,9 +310,40 @@ const PlacementPrep = () => {
   };
 
   const generateQuestions = async (type: "topic" | "company" | "mock" | "coding", id: string, difficulty: string) => {
+    if (type === "company") {
+      const bankRows = questionBank[id] || [];
+      const filtered = filterCompanyQuestionsByDifficulty(bankRows, difficulty);
+      const selected = shuffle(filtered)
+        .slice(0, Math.min(15, filtered.length))
+        .map((q) => ({
+          question: q.question,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation || "No explanation provided.",
+          difficulty: q.difficulty,
+        }));
+
+      if (selected.length > 0) {
+        setQuizType(type);
+        setQuestions(selected);
+        setCodingQuestions([]);
+        setAnswers(new Array(selected.length).fill(null));
+        setCurrentQ(0);
+        setSelectedAnswer(null);
+        setShowExplanation(false);
+        setTimeLeft(20 * 60);
+        setTimerActive(true);
+        setActiveTab("quiz");
+        setExecutionResult("");
+        setIsRunning(false);
+        setGenProgress(`Loaded ${selected.length} bank questions for ${COMPANIES.find((c) => c.id === id)?.label || id}.`);
+        return;
+      }
+    }
+
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (!geminiKey) {
-      setGenProgress("⚠️ Gemini API key not found. Set VITE_GEMINI_API_KEY in .env");
+      setGenProgress("⚠️ No imported bank questions found for this mode and Gemini key is missing. Import a question-bank JSON or set VITE_GEMINI_API_KEY.");
       return;
     }
 
@@ -388,6 +487,278 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
   };
 
   const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
+
+  const handleAnswer = (option: string) => {
+    setSelectedAnswer(option);
+    const newAnswers = [...answers];
+    newAnswers[currentQ] = option;
+    setAnswers(newAnswers);
+    setShowExplanation(true);
+  };
+
+  const convertArrayBufferToBase64 = (arrayBuffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i += 1) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  const applyParsedBank = async (companiesMap: Record<string, QuizQuestion[]>) => {
+    let total = 0;
+    Object.values(companiesMap).forEach((rows) => {
+      total += rows.length;
+    });
+
+    if (total === 0) {
+      setGenProgress("❌ No valid questions found. Ensure file has company, question, options, and correctAnswer (or clear MCQ pattern in PDF).");
+      return;
+    }
+
+    // Convert to database format and save
+    const questionsToSave: any[] = [];
+    Object.entries(companiesMap).forEach(([company, questions]) => {
+      questions.forEach((q) => {
+        questionsToSave.push({
+          company: company || "general",
+          question: q.question,
+          options: q.options,
+          correct_answer: q.correctAnswer,
+          difficulty: q.difficulty || "placement",
+          explanation: q.explanation,
+        });
+      });
+    });
+
+    try {
+      setGenProgress("💾 Saving questions to database...");
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user || !isAdmin) {
+        setGenProgress("❌ Admin access required to save questions.");
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const response = await fetch("http://localhost:4000/api/questions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ questions: questionsToSave }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save to database");
+      }
+
+      const result = await response.json();
+      
+      // Also update local storage for backward compatibility
+      setQuestionBank(companiesMap);
+      setBankSummary({ companies: Object.keys(companiesMap).length, questions: total });
+      localStorage.setItem(QUESTION_BANK_STORAGE_KEY, JSON.stringify({ companies: companiesMap }));
+      
+      // Invalidate cache to refresh the stats
+      invalidateAll();
+      
+      setGenProgress(`✅ Successfully imported ${result.inserted || total} questions to database across ${Object.keys(companiesMap).length} companies.`);
+    } catch (err) {
+      console.error("Error saving to database:", err);
+      setGenProgress("❌ Failed to save to database. Check server connection.");
+    }
+  };
+
+  const extractPdfPayload = async (base64: string): Promise<{ text: string; questions: unknown[] }> => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+
+    const endpoints = ["/api/parse-resume-pdf", "http://localhost:4000/api/parse-resume-pdf"];
+    let lastError = "";
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ data: base64 }),
+        });
+
+        const raw = await response.text();
+        if (!response.ok) {
+          lastError = `${endpoint} returned ${response.status}`;
+          continue;
+        }
+
+        let parsed: PdfParseApiResponse | null = null;
+        try {
+          parsed = JSON.parse(raw) as PdfParseApiResponse;
+        } catch {
+          lastError = `${endpoint} returned non-JSON response`;
+          continue;
+        }
+
+        const text = String(parsed?.text || "").trim();
+        const questions = Array.isArray(parsed?.questions) ? parsed.questions : [];
+        if (text || questions.length > 0) {
+          return { text, questions };
+        }
+
+        lastError = `${endpoint} returned empty text`;
+      } catch (err: any) {
+        lastError = err?.message || `Failed calling ${endpoint}`;
+      }
+    }
+
+    throw new Error(lastError || "Could not reach PDF parser service");
+  };
+
+  const handleQuestionBankImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isAdmin) {
+      setGenProgress("❌ Only admins can upload question banks.");
+      return;
+    }
+
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+      if (isPdf) {
+        setGenProgress("Uploading PDF and extracting text...");
+        const buffer = await file.arrayBuffer();
+        const base64 = convertArrayBufferToBase64(buffer);
+        const parsedPayload = await extractPdfPayload(base64);
+        const text = String(parsedPayload?.text || "").trim();
+        const backendQuestions = Array.isArray(parsedPayload?.questions) ? parsedPayload.questions : [];
+
+        const normalizedFromPdf: Record<string, QuizQuestion[]> = {};
+
+        if (backendQuestions.length > 0) {
+          backendQuestions.forEach((rawRow) => {
+            const row = asUnknownRecord(rawRow);
+            if (!row) return;
+
+            const question = String(row.question || "").trim();
+            const options = Array.isArray(row.options)
+              ? row.options.map((o: unknown) => String(o).trim()).filter(Boolean)
+              : [];
+            const correctAnswer = String(row.correctAnswer || "").trim();
+            const explanation = String(row.explanation || "Imported from question bank PDF.").trim();
+            const companyId =
+              normalizeCompanyId(String(row.company || "")) ||
+              inferCompanyId(file.name) ||
+              "wipro";
+
+            if (!question || options.length < 2 || !correctAnswer) return;
+            normalizedFromPdf[companyId] = normalizedFromPdf[companyId] || [];
+            normalizedFromPdf[companyId].push({
+              question,
+              options,
+              correctAnswer,
+              explanation,
+              difficulty: String(row.difficulty || "placement"),
+            });
+          });
+        }
+
+        if (Object.keys(normalizedFromPdf).length > 0) {
+          await applyParsedBank(normalizedFromPdf);
+          return;
+        }
+
+        if (!text) {
+          setGenProgress("❌ PDF has no readable text. Try a text-based PDF or JSON export.");
+          return;
+        }
+
+        const companyHint = inferCompanyId(file.name);
+        const parsedFromPdf = parsePlacementQuestionsFromText(text, companyHint);
+        const normalizedFromText: Record<string, QuizQuestion[]> = {};
+
+        Object.entries(parsedFromPdf.companies).forEach(([companyId, rows]) => {
+          normalizedFromText[companyId] = rows.map((q) => ({
+            question: q.question,
+            options: q.options,
+            correctAnswer: q.correctAnswer,
+            explanation: q.explanation || "Imported from question bank PDF.",
+            difficulty: q.difficulty,
+          }));
+        });
+
+        await applyParsedBank(normalizedFromText);
+      } else {
+        const text = await file.text();
+        const payload = JSON.parse(text);
+        const parsed = parsePlacementQuestionBank(payload);
+        const nextBank: Record<string, QuizQuestion[]> = {};
+
+        Object.entries(parsed.companies).forEach(([companyId, rows]) => {
+          const normalizedRows: QuizQuestion[] = rows.map((q) => ({
+            question: q.question,
+            options: q.options,
+            correctAnswer: q.correctAnswer,
+            explanation: q.explanation || "No explanation provided.",
+            difficulty: q.difficulty,
+          }));
+
+          if (normalizedRows.length > 0) {
+            nextBank[companyId] = normalizedRows;
+          }
+        });
+
+        await applyParsedBank(nextBank);
+      }
+    } catch (err: any) {
+      const msg = String(err?.message || "");
+      if (msg.includes("returned 401") || msg.includes("returned 403")) {
+        setGenProgress("❌ Admin authorization failed. Please re-login with an admin account and try again.");
+      } else if (msg.includes("returned 404")) {
+        setGenProgress("❌ PDF parser API route not found. Ensure backend server is running and endpoint is available.");
+      } else if (msg.includes("localhost:4000") || msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        setGenProgress("❌ PDF parser server is not reachable. Start backend with: node server.js, then try again.");
+      } else {
+        setGenProgress("❌ Could not import this file. Upload a valid JSON or a text-readable PDF.");
+      }
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const clearQuestionBank = async () => {
+    if (!isAdmin) {
+      setGenProgress("❌ Only admins can clear the question bank.");
+      return;
+    }
+
+    try {
+      setGenProgress("🗑️ Clearing question bank...");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      await fetch("http://localhost:4000/api/questions", {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+
+      setQuestionBank({});
+      setBankSummary({ companies: 0, questions: 0 });
+      localStorage.removeItem(QUESTION_BANK_STORAGE_KEY);
+      invalidateAll();
+      setGenProgress("✅ Bank cache and database cleared.");
+    } catch (err) {
+      console.error("Error clearing bank:", err);
+      setGenProgress("❌ Failed to clear database. Check server connection.");
+    }
+  };
 
   const handleRunCode = async () => {
     setIsRunning(true);
@@ -578,6 +949,18 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
   const getScore = () => answers.reduce((acc, ans, i) => acc + (ans === questions[i]?.correctAnswer ? 1 : 0), 0);
 
   // ---------- RENDER ----------
+  // Show practice mode if selected
+  if (mode === "practice") {
+    return (
+      <div className="min-h-screen bg-background">
+        <AppSidebar />
+        <main className="ml-64">
+          <PracticeMode onBack={() => setMode("quiz")} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <AppSidebar />
@@ -608,15 +991,44 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
           {/* ========== HOME TAB ========== */}
           {activeTab === "home" && (
             <div className="space-y-8 animate-in fade-in duration-500">
-              {/* Header */}
+              {/* Header with Mode Toggle */}
               <header>
-                <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                  <div className="p-2.5 bg-gradient-to-br from-primary to-indigo-600 rounded-xl shadow-lg">
-                    <GraduationCap className="h-7 w-7 text-white" />
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+                      <div className="p-2.5 bg-gradient-to-br from-primary to-indigo-600 rounded-xl shadow-lg">
+                        <GraduationCap className="h-7 w-7 text-white" />
+                      </div>
+                      Placement Prep
+                    </h1>
+                    <p className="text-slate-600 dark:text-gray-400 mt-2">AI-powered preparation for campus placements & interviews</p>
                   </div>
-                  Placement Prep
-                </h1>
-                <p className="text-slate-600 dark:text-gray-400 mt-2">AI-powered preparation for campus placements & interviews</p>
+
+                  {/* Mode Toggle */}
+                  <div className="flex gap-2 bg-white/5 border border-white/10 rounded-lg p-1.5">
+                    <button
+                      onClick={() => setMode("quiz")}
+                      className={`px-4 py-2 rounded-md font-semibold transition-all ${
+                        mode === "quiz"
+                          ? "bg-primary text-white"
+                          : "hover:bg-white/10 text-slate-400"
+                      }`}
+                    >
+                      🎯 Quiz Mode
+                    </button>
+                    <button
+                      onClick={() => setMode("practice")}
+                      className={`px-4 py-2 rounded-md font-semibold transition-all ${
+                        mode === "practice"
+                          ? "bg-primary text-white"
+                          : "hover:bg-white/10 text-slate-400"
+                      }`}
+                    >
+                      📖 Practice Mode
+                    </button>
+                  </div>
+                </div>
+
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button
                     variant="outline"
@@ -625,7 +1037,46 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                   >
                     Build / Improve My Resume
                   </Button>
+
+                  {/* ADMIN ONLY: Question Bank Controls */}
+                  {!roleLoading && isAdmin && (
+                    <div className="border-l border-white/10 pl-3">
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          variant="outline"
+                          className="border-blue-500/40 bg-blue-500/10 text-blue-100 hover:bg-blue-500/20 text-xs"
+                          onClick={() => bankFileInputRef.current?.click()}
+                        >
+                          <Upload className="h-3 w-3 mr-1" /> Import PDF/JSON
+                        </Button>
+                        <input
+                          ref={bankFileInputRef}
+                          type="file"
+                          accept=".pdf,.json"
+                          onChange={handleQuestionBankImport}
+                          className="hidden"
+                        />
+                        <Button
+                          variant="outline"
+                          className="border-red-500/40 bg-red-500/10 text-red-100 hover:bg-red-500/20 text-xs"
+                          onClick={clearQuestionBank}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" /> Clear Bank
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {/* Database Statistics */}
+                {qStats && (
+                  <div className="mt-4 p-3 bg-white/5 border border-white/10 rounded-lg">
+                    <p className="text-xs text-slate-400">
+                      📚 Database: <span className="text-white font-semibold">{qStats.total}</span> questions across{" "}
+                      <span className="text-white font-semibold">{qStats.companies}</span> companies
+                    </p>
+                  </div>
+                )}
               </header>
 
               {/* Analytics Cards */}
@@ -782,6 +1233,54 @@ Return ONLY a JSON array of 30 question objects. No extra text.`;
                 <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
                   <Building2 className="h-5 w-5 text-blue-400" /> Company Exam Modes
                 </h2>
+
+                {!roleLoading && isAdmin && (
+                  <Card className="bg-white/5 border-white/10 mb-4">
+                    <CardContent className="pt-4 pb-4">
+                      <div className="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-white">Use Your Own Question Bank</p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Upload JSON or PDF. JSON supports companies map / flat array. PDF supports numbered MCQs with A/B/C/D options.
+                          </p>
+                          {bankSummary.questions > 0 && (
+                            <p className="text-xs text-emerald-300 mt-2">
+                              Imported: {bankSummary.questions} questions across {bankSummary.companies} companies.
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={bankFileInputRef}
+                            type="file"
+                            accept="application/json,.json,application/pdf,.pdf"
+                            className="hidden"
+                            onChange={handleQuestionBankImport}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-blue-500/30 bg-blue-500/10 text-blue-100 hover:bg-blue-500/20"
+                            onClick={() => bankFileInputRef.current?.click()}
+                          >
+                            <Upload className="h-4 w-4 mr-2" /> Import JSON / PDF
+                          </Button>
+                          {bankSummary.questions > 0 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="border-red-500/30 bg-red-500/10 text-red-100 hover:bg-red-500/20"
+                              onClick={clearQuestionBank}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" /> Clear
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {COMPANIES.map((company) => (
                     <Card

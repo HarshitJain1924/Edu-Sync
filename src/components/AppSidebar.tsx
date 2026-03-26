@@ -7,6 +7,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 
 type AppRole = "student" | "teacher" | "admin";
 type NavItem = { path: string; label: string; icon: LucideIcon };
@@ -27,24 +30,31 @@ export const AppSidebar = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data } = await supabase
+      const { data: userRoleRow } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (data?.role === "teacher" || data?.role === "admin" || data?.role === "student") {
-        setRole(data.role);
-      } else {
-        setRole("student");
-      }
-
       // Load profile info
       const { data: profile } = await supabase
         .from("profiles")
-        .select("username, avatar_url")
+        .select("username, avatar_url, role")
         .eq("id", user.id)
         .maybeSingle();
+
+      // Prefer user_roles, but fall back to profiles.role for compatibility.
+      const resolvedRole =
+        userRoleRow?.role ||
+        (profile?.role === "teacher" || profile?.role === "admin" || profile?.role === "student"
+          ? profile.role
+          : "student");
+
+      if (resolvedRole === "teacher" || resolvedRole === "admin" || resolvedRole === "student") {
+        setRole(resolvedRole);
+      } else {
+        setRole("student");
+      }
 
       const username = profile?.username || user.user_metadata?.username || user.email?.split("@")[0] || "User";
       setUserName(username);
@@ -100,16 +110,42 @@ export const AppSidebar = () => {
     }`;
 
   const renderNavItem = (item: { path: string; label: string; icon: LucideIcon }) => (
-    <Button
-      key={item.path}
-      variant="ghost"
-      className={navItemClass(item.path)}
-      onClick={() => navigate(item.path)}
-      title={item.label}
-    >
-      <item.icon className={`h-4.5 w-4.5 ${isActive(item.path) ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-zinc-400"}`} />
-      {!isCollapsed && <span className="text-sm truncate">{item.label}</span>}
-    </Button>
+    <TooltipProvider key={item.path} delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            className={cn(
+              "w-full h-11 transition-all duration-200 relative group shrink-0 rounded-xl mb-1",
+              isCollapsed ? "justify-center px-0" : "justify-start px-4 gap-3",
+              isActive(item.path)
+                ? "bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white border border-slate-300 dark:border-white/15 font-semibold"
+                : "text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5"
+            )}
+            onClick={() => navigate(item.path)}
+          >
+            <item.icon className={cn(
+              "h-5 w-5 transition-transform duration-200",
+              isActive(item.path) ? "text-slate-900 dark:text-white" : ""
+            )} />
+            {!isCollapsed && (
+              <motion.span 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="text-sm truncate"
+              >
+                {item.label}
+              </motion.span>
+            )}
+          </Button>
+        </TooltipTrigger>
+        {isCollapsed && (
+          <TooltipContent side="right" className="bg-slate-900 text-white border-white/10 text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-xl">
+            {item.label}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
   );
 
   const navSectionsByRole: Record<AppRole, NavSection[]> = {
@@ -171,6 +207,7 @@ export const AppSidebar = () => {
           { path: "/admin/analytics", label: "Platform Analytics", icon: TrendingUp },
           { path: "/admin/learning-styles", label: "Learning Styles", icon: Brain },
           { path: "/admin/ai-courses", label: "AI Course Oversight", icon: Sparkles },
+          { path: "/placement-prep", label: "Placement Question Bank", icon: GraduationCap },
         ],
       },
       {
@@ -186,17 +223,34 @@ export const AppSidebar = () => {
   const navSections = navSectionsByRole[activeRole];
 
   return (
-    <aside className={`fixed left-0 top-0 h-full overflow-hidden ${isCollapsed ? "w-16" : "w-64"} bg-[linear-gradient(180deg,rgba(250,251,255,0.98)_0%,rgba(244,246,252,0.98)_56%,rgba(239,242,250,0.99)_100%)] dark:bg-[linear-gradient(180deg,rgba(17,18,24,0.98)_0%,rgba(12,13,18,0.98)_56%,rgba(10,11,16,0.99)_100%)] backdrop-blur-md border-r border-slate-200/80 dark:border-white/10 z-50 flex flex-col transition-all duration-300`}>
+    <aside className={cn(
+      "fixed left-0 top-0 h-full overflow-visible transition-all duration-300 z-50 flex flex-col",
+      isCollapsed ? "w-16" : "w-64",
+      "bg-[linear-gradient(180deg,rgba(250,251,255,0.98)_0%,rgba(244,246,252,0.98)_56%,rgba(239,242,250,0.99)_100%)] dark:bg-[linear-gradient(180deg,rgba(17,18,24,0.98)_0%,rgba(12,13,18,0.98)_56%,rgba(10,11,16,0.99)_100%)] backdrop-blur-md border-r border-slate-200/80 dark:border-white/10"
+    )}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-12 -right-10 h-40 w-40 rounded-full bg-violet-500/8 dark:bg-violet-500/10 blur-3xl" />
         <div className="absolute top-1/2 -left-10 h-36 w-36 rounded-full bg-indigo-500/[0.06] dark:bg-indigo-500/[0.08] blur-3xl" />
         <div className="absolute bottom-8 right-0 h-28 w-28 rounded-full bg-violet-400/[0.06] dark:bg-violet-400/[0.08] blur-3xl" />
       </div>
-      <div className={`${isCollapsed ? "p-3" : "p-4"} flex-1 min-h-0 flex flex-col`}>
+
+      {/* Floating Toggle Button */}
+      <button
+        onClick={toggleCollapsed}
+        className="absolute -right-3.5 top-10 h-7 w-7 rounded-full bg-slate-100 dark:bg-[#1e2330] border border-slate-300 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-400 dark:hover:border-blue-500/50 shadow-lg shadow-black/10 dark:shadow-black/50 transition-all z-[70] translate-x-1"
+      >
+        {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+      </button>
+
+      <div className={cn("p-3 flex-1 min-h-0 flex flex-col", isCollapsed ? "p-3" : "p-4")}>
+        {/* Logo Section */}
         <button
           type="button"
           onClick={() => navigate(getHomePath())}
-          className={`flex items-center ${isCollapsed ? "justify-center" : "gap-2"} mb-3 cursor-pointer group`}
+          className={cn(
+            "flex items-center mb-6 cursor-pointer group",
+            isCollapsed ? "justify-center" : "gap-2"
+          )}
           title="EduSync"
         >
           <div className="p-2 bg-slate-100 dark:bg-zinc-900 rounded-lg border border-slate-300 dark:border-white/10 transition-all duration-300 group-hover:bg-slate-200 dark:group-hover:bg-zinc-800">
@@ -205,16 +259,7 @@ export const AppSidebar = () => {
           {!isCollapsed && <span className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">EduSync</span>}
         </button>
 
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={toggleCollapsed}
-          className={`mb-2 h-8 ${isCollapsed ? "w-full justify-center px-0" : "w-full justify-start px-3"} text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5`}
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4 mr-2" />}
-          {!isCollapsed && <span className="text-sm">Collapse</span>}
-        </Button>
+        {/* Toggle Button removed from inside */}
 
         <ScrollArea className="flex-1 min-h-0 pr-1">
           <nav className="space-y-3 pb-2">
@@ -228,14 +273,16 @@ export const AppSidebar = () => {
                 <div className="space-y-1">{section.items.map(renderNavItem)}</div>
               </div>
             ))}
-
           </nav>
         </ScrollArea>
 
         {/* User Profile Section */}
         <div className="mt-2 pt-3 border-t border-slate-300 dark:border-white/10 space-y-2 shrink-0">
           <div
-            className={`w-full flex items-center ${isCollapsed ? "justify-center py-1" : "justify-between px-2 py-1"}`}
+            className={cn(
+              "w-full flex items-center",
+              isCollapsed ? "justify-center py-1" : "justify-between px-2 py-1"
+            )}
             title="Theme"
           >
             {!isCollapsed && <span className="text-sm text-slate-500 dark:text-zinc-400">Theme</span>}
@@ -244,7 +291,10 @@ export const AppSidebar = () => {
 
           <button
             onClick={() => navigate("/settings")}
-            className={`w-full flex items-center ${isCollapsed ? "justify-center" : "gap-3"} p-2.5 rounded-xl hover:bg-slate-900/5 dark:hover:bg-white/5 transition-colors cursor-pointer group border border-transparent hover:border-slate-300 dark:hover:border-white/10`}
+            className={cn(
+              "w-full flex items-center p-2.5 rounded-xl hover:bg-slate-900/5 dark:hover:bg-white/5 transition-colors cursor-pointer group border border-transparent hover:border-slate-300 dark:hover:border-white/10",
+              isCollapsed ? "justify-center" : "gap-3"
+            )}
             title={userName || "Profile"}
           >
             <Avatar className="h-10 w-10 ring-1 ring-slate-300 dark:ring-white/10 transition-all">
@@ -263,7 +313,10 @@ export const AppSidebar = () => {
 
           <Button
             variant="ghost"
-            className={`w-full ${isCollapsed ? "justify-center px-0" : "justify-start gap-3"} text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5 transition-colors border border-transparent hover:border-slate-300 dark:hover:border-white/10`}
+            className={cn(
+              "w-full text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5 transition-colors border border-transparent hover:border-slate-300 dark:hover:border-white/10",
+              isCollapsed ? "justify-center px-0" : "justify-start gap-3"
+            )}
             onClick={handleLogout}
             title="Logout"
           >

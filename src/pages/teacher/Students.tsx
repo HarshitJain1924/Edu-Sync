@@ -23,13 +23,22 @@ import {
   CheckCircle2,
   AlertTriangle,
   ThumbsUp,
-  Eye
+  Eye,
+  Search,
+  MessageSquare,
+  GraduationCap,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
+  TrendingDown
 } from "lucide-react";
+import { motion, AnimatePresence, useMotionValue, useMotionTemplate } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useRequireRole } from "@/hooks/useRequireRole";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 
 interface StudentProgress {
   user_id: string;
@@ -74,6 +83,66 @@ interface DetailedStudent {
   }>;
   total_study_time?: number;
 }
+
+const floatingGlassCardClass = "bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] rounded-3xl";
+
+const SpotlightCard = ({ children, className }: { children: React.ReactNode; className?: string }) => {
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+
+  function handleMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent) {
+    const { left, top } = currentTarget.getBoundingClientRect();
+    mouseX.set(clientX - left);
+    mouseY.set(clientY - top);
+  }
+
+  return (
+    <motion.div
+      onMouseMove={handleMouseMove}
+      whileHover={{ y: -5, scale: 1.01 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      className={cn("group relative overflow-hidden", className)}
+    >
+      <motion.div
+        className="pointer-events-none absolute -inset-px rounded-3xl opacity-0 transition duration-300 group-hover:opacity-100"
+        style={{
+          background: useMotionTemplate`
+            radial-gradient(
+              650px circle at ${mouseX}px ${mouseY}px,
+              rgba(139, 92, 246, 0.15),
+              transparent 80%
+            )
+          `,
+        }}
+      />
+      {children}
+    </motion.div>
+  );
+};
+
+const getRiskLevel = (score: number, daysSince: number | undefined) => {
+  if (score < 50 || (daysSince && daysSince > 7)) return { 
+    label: "High Risk", 
+    color: "text-rose-500", 
+    bg: "bg-rose-500/10", 
+    icon: ShieldAlert,
+    desc: "Low engagement or poor scores"
+  };
+  if (score < 70 || (daysSince && daysSince > 3)) return { 
+    label: "Needs Attention", 
+    color: "text-amber-500", 
+    bg: "bg-amber-500/10", 
+    icon: ShieldQuestion,
+    desc: "Inconsistent performance"
+  };
+  return { 
+    label: "On Track", 
+    color: "text-emerald-500", 
+    bg: "bg-emerald-500/10", 
+    icon: ShieldCheck,
+    desc: "Consistent & strong scores"
+  };
+};
 
 export default function TeacherStudents() {
   useRequireRole("teacher");
@@ -308,35 +377,73 @@ export default function TeacherStudents() {
           .select("user_id, progress_data, updated_at, content_id")
           .eq("content_type", "quiz_set")
           .in("user_id", Array.from(studentMap.keys()))
-          .in("content_id", teacherQuizIds);
+          .in("content_id", teacherQuizIds)
+          .order('updated_at', { ascending: false });
 
         if (quizError) throw quizError;
 
+        // Group quiz data by student for metric calculation
+        const quizGroups = new Map<string, any[]>();
         (quizData || []).forEach((row: any) => {
-          const student = studentMap.get(row.user_id);
-          if (student) {
-            const score = row.progress_data?.score || 0;
-            const quizTitle = row.progress_data?.quiz_title || 'Unknown Quiz';
-            const updatedAt = row.updated_at;
-            
-            student.quizzes_taken++;
-            student.total_score += score;
-            
-            if (!student.latest_date || new Date(updatedAt) > new Date(student.latest_date)) {
-              student.latest_quiz = quizTitle;
-              student.latest_date = updatedAt;
-            }
-          }
+          if (!quizGroups.has(row.user_id)) quizGroups.set(row.user_id, []);
+          quizGroups.get(row.user_id)!.push(row);
         });
 
-        const studentsData: StudentProgress[] = Array.from(studentMap.values()).map(s => ({
-          user_id: s.user_id,
-          username: s.username,
-          avatar_url: s.avatar_url,
-          quizzes_taken: s.quizzes_taken,
-          average_score: s.quizzes_taken > 0 ? Math.round(s.total_score / s.quizzes_taken) : 0,
-          latest_quiz: s.latest_quiz
-        })).sort((a, b) => b.average_score - a.average_score);
+        const studentsData: StudentProgress[] = Array.from(studentMap.values()).map(s => {
+          const studentQuizzes = quizGroups.get(s.user_id) || [];
+          let totalScore = 0;
+          let latestQuiz = 'None';
+          let latestDate = null;
+
+          studentQuizzes.forEach((q, idx) => {
+            totalScore += q.progress_data?.score || 0;
+            if (idx === 0) {
+              latestQuiz = q.progress_data?.quiz_title || 'Unknown Quiz';
+              latestDate = q.updated_at;
+            }
+          });
+
+          // Calculate engagement streak
+          const quizDates = studentQuizzes
+            .map((q: any) => new Date(q.updated_at).toDateString())
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .map((d: string) => new Date(d))
+            .sort((a, b) => b.getTime() - a.getTime());
+
+          let streak = 0;
+          if (quizDates.length > 0) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            let currentDate = new Date(quizDates[0]);
+            currentDate.setHours(0, 0, 0, 0);
+            if (Math.floor((today.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24)) < 7) {
+              for (let i = 0; i < quizDates.length; i++) {
+                const expected = new Date(currentDate);
+                expected.setDate(expected.getDate() - i);
+                if (quizDates[i].toDateString() === expected.toDateString()) streak++;
+                else break;
+              }
+            }
+          }
+
+          // Calculate consistency (last 30 days)
+          const last30 = new Date();
+          last30.setDate(last30.getDate() - 30);
+          const uniqueRecent = new Set(studentQuizzes.filter(q => new Date(q.updated_at) > last30).map(q => new Date(q.updated_at).toDateString()));
+          const consistency = Math.round((uniqueRecent.size / 30) * 100);
+
+          return {
+            user_id: s.user_id,
+            username: s.username,
+            avatar_url: s.avatar_url,
+            quizzes_taken: studentQuizzes.length,
+            average_score: studentQuizzes.length > 0 ? Math.round(totalScore / studentQuizzes.length) : 0,
+            latest_quiz: latestQuiz,
+            latest_date: latestDate || undefined,
+            engagement_streak: streak,
+            consistency: consistency
+          };
+        }).sort((a, b) => b.average_score - a.average_score);
 
         setStudents(studentsData);
       } catch (error: any) {
@@ -352,500 +459,424 @@ export default function TeacherStudents() {
     })();
   }, [toast]);
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredStudents = students.filter(s => 
+    (s.username || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-blue-950">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-8 py-6 shadow-sm">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/teacher")} className="hover:bg-slate-100 dark:hover:bg-slate-800">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Students</h1>
-            <p className="text-sm text-slate-600 dark:text-slate-400">Manage and track student performance</p>
+    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-violet-500/30 overflow-x-hidden">
+      {/* Background blobs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-violet-600/10 rounded-full blur-[120px] animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/10 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
+
+      <div className="relative z-10 flex flex-col min-h-screen">
+        {/* Modern Header */}
+        <header className="px-8 py-8 flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-white/5 bg-white/[0.02] backdrop-blur-md sticky top-0 z-50">
+          <div className="flex items-center gap-6">
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={() => navigate("/teacher")} 
+              className="rounded-xl border-white/10 bg-white/5 hover:bg-white/10 hover:border-violet-500/50 transition-all group shrink-0"
+            >
+              <ArrowLeft className="h-4 w-4 group-hover:-translate-x-1 transition-transform" />
+            </Button>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="h-4 w-4 text-violet-500" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Mentorship Hub</span>
+              </div>
+              <h1 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
+                My <span className="text-violet-500">Students</span>
+              </h1>
+            </div>
           </div>
-        </div>
-      </header>
 
-      <main className="p-8 max-w-6xl mx-auto">
-        {/* Stats Overview */}
-        {!loading && students.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">Total Students</p>
-                    <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">{students.length}</p>
-                  </div>
-                  <Users className="h-8 w-8 text-blue-500 opacity-20" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">Avg. Score</p>
-                    <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
-                      {Math.round(students.reduce((sum, s) => sum + s.average_score, 0) / students.length)}%
-                    </p>
-                  </div>
-                  <BarChart3 className="h-8 w-8 text-green-500 opacity-20" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">Total Quizzes</p>
-                    <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
-                      {students.reduce((sum, s) => sum + s.quizzes_taken, 0)}
-                    </p>
-                  </div>
-                  <Target className="h-8 w-8 text-purple-500 opacity-20" />
-                </div>
-              </CardContent>
-            </Card>
+          <div className="relative group w-full md:w-96">
+            <Search className="h-4 w-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-violet-500 transition-colors" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search students by name..."
+              className="pl-11 h-12 bg-white/5 backdrop-blur-md border-white/10 rounded-2xl focus-visible:ring-violet-500 transition-all placeholder:text-slate-600"
+            />
           </div>
-        )}
+        </header>
 
-        {/* Students List */}
-        <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-md">
-          <CardHeader className="border-b border-slate-200 dark:border-slate-800">
-            <CardTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
-              <Users className="h-5 w-5 text-blue-500" />
-              Student Performance
-            </CardTitle>
-            <CardDescription>Click on any student to view detailed profile and performance metrics</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
+        <main className="flex-1 p-8 max-w-7xl mx-auto w-full space-y-12">
+          {/* Stats Grid */}
+          {!loading && students.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[
+                { label: "Total Students", value: students.length, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
+                { 
+                  label: "Collective Avg", 
+                  value: `${Math.round(students.reduce((sum, s) => sum + s.average_score, 0) / students.length)}%`, 
+                  icon: BarChart3, 
+                  color: "text-emerald-500", 
+                  bg: "bg-emerald-500/10",
+                  trend: "Trending Up",
+                  trendIcon: TrendingUp
+                },
+                { 
+                  label: "Total Attempts", 
+                  value: students.reduce((sum, s) => sum + s.quizzes_taken, 0), 
+                  icon: Target, 
+                  color: "text-violet-500", 
+                  bg: "bg-violet-500/10" 
+                }
+              ].map((stat, i) => (
+                <SpotlightCard key={i} className={cn(floatingGlassCardClass, "p-8")}>
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <div className={cn("p-2 rounded-lg", stat.bg, stat.color)}>
+                          <stat.icon className="h-4 w-4" />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">{stat.label}</span>
+                      </div>
+                      <div>
+                        <div className="text-4xl font-black text-white leading-none tracking-tight">
+                          {stat.value}
+                        </div>
+                        {stat.trend && (
+                          <div className="flex items-center gap-1 mt-2 text-[10px] font-bold text-emerald-500 uppercase tracking-wide">
+                            <stat.trendIcon className="h-3 w-3" />
+                            {stat.trend}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <stat.icon className={cn("h-12 w-12 opacity-5", stat.color)} />
+                  </div>
+                </SpotlightCard>
+              ))}
+            </div>
+          )}
+
+          {/* Activity Section */}
+          <section className="space-y-8">
+            <div className="flex items-center justify-between px-2">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-violet-500" />
+                <h2 className="text-lg font-black uppercase tracking-widest text-white">Student Roster</h2>
+                <Badge variant="outline" className="border-white/10 bg-white/5 text-slate-400 font-bold uppercase tracking-tighter text-[10px]">
+                  {loading ? "Syncing..." : `${filteredStudents.length} Active`}
+                </Badge>
+              </div>
+            </div>
+
             {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-slate-600 dark:text-slate-400">Loading students...</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className={cn(floatingGlassCardClass, "h-64 animate-pulse bg-white/5")} />
+                ))}
               </div>
-            ) : students.length === 0 ? (
-              <div className="text-center py-12">
-                <Users className="h-12 w-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-600 dark:text-slate-400">No student data yet</p>
-              </div>
+            ) : filteredStudents.length === 0 ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(floatingGlassCardClass, "p-20 text-center space-y-6")}
+              >
+                <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto ring-1 ring-white/10">
+                  <Users className="h-10 w-10 text-slate-600" />
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-black text-2xl text-white">No students match your query</h4>
+                  <p className="text-sm text-slate-500 max-w-sm mx-auto font-medium">Try searching by full name or check if the student is assigned to your classroom.</p>
+                </div>
+              </motion.div>
             ) : (
-              <div className="space-y-3">
-                {students.map((s, index) => {
-                  const status = s.average_score >= 80 ? 'Excellent' : s.average_score >= 60 ? 'Good' : 'Needs Attention';
-                  const statusColor = s.average_score >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 
-                                     s.average_score >= 60 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 
-                                     'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <AnimatePresence mode="popLayout">
+                  {filteredStudents.map((s, index) => {
+                    const daysSince = s.latest_date ? Math.floor((Date.now() - new Date(s.latest_date).getTime()) / (1000 * 60 * 60 * 24)) : undefined;
+                    const risk = getRiskLevel(s.average_score, daysSince);
+                    const RiskIcon = risk.icon;
 
-                  return (
-                    <div
-                      key={s.user_id}
-                      onClick={() => {
-                        fetchStudentDetail(
-                          s.user_id,
-                          s.username || 'Unknown',
-                          s.avatar_url,
-                          s.average_score,
-                          s.quizzes_taken,
-                          s.latest_quiz,
-                          s.latest_date,
-                        );
-                      }}
-                      className="group p-5 bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-slate-800 dark:via-slate-800 dark:to-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-xl transition-all duration-300 cursor-pointer hover:-translate-y-1 overflow-hidden"
-                    >
-                      {/* Animated background gradient on hover */}
-                      <div className="absolute inset-0 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/10 dark:to-purple-900/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 -z-10 pointer-events-none" />
-                      
-                      <div className="space-y-4">
-                        {/* Header Section */}
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex items-center gap-4 flex-1 min-w-0">
-                            <div className="relative flex-shrink-0">
-                              <Avatar className="h-11 w-11 border-2 border-white dark:border-slate-700 shadow-lg">
-                                {s.avatar_url && <AvatarImage src={s.avatar_url} alt={s.username || "Student"} />}
-                                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold uppercase">
-                                  {(s.username || "S").charAt(0)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="absolute -bottom-1 -right-1 h-5 min-w-[20px] px-1 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-[10px] font-bold flex items-center justify-center">
-                                {index + 1}
+                    return (
+                      <SpotlightCard 
+                        key={s.user_id} 
+                        className={cn(floatingGlassCardClass, "p-8 group cursor-pointer hover:border-violet-500/30 transition-all flex flex-col justify-between h-full bg-white/[0.03]")}
+                      >
+                        <div onClick={() => {
+                          fetchStudentDetail(
+                            s.user_id,
+                            s.username || 'Unknown',
+                            s.avatar_url,
+                            s.average_score,
+                            s.quizzes_taken,
+                            s.latest_quiz,
+                            s.latest_date,
+                          );
+                        }}>
+                          <div className="flex items-start justify-between mb-8">
+                            <div className="flex items-center gap-4">
+                              <div className="relative">
+                                <Avatar className="h-14 w-14 border-2 border-white/10 group-hover:border-violet-500/50 transition-colors shadow-2xl">
+                                  {s.avatar_url && <AvatarImage src={s.avatar_url} alt={s.username || "Student"} />}
+                                  <AvatarFallback className="bg-gradient-to-br from-violet-500 to-blue-600 text-white font-black text-lg">
+                                    {(s.username || "S").charAt(0)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-lg bg-[#020617] border border-white/10 flex items-center justify-center text-[10px] font-black text-white shadow-xl">
+                                  {index + 1}
+                                </div>
                               </div>
-                            </div>
-
-                            {/* Student Info */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                <p className="font-bold text-slate-900 dark:text-white text-sm">{s.username || "Unknown user"}</p>
-                                <Badge className={cn("whitespace-nowrap text-xs font-semibold", statusColor)}>
-                                  {status}
+                              <div className="space-y-1">
+                                <h3 className="font-black text-lg tracking-tight group-hover:text-violet-500 transition-colors truncate max-w-[140px]">
+                                  {s.username || "Anonymous"}
+                                </h3>
+                                <Badge className={cn("border-none px-2 py-0.5 text-[9px] uppercase tracking-wider font-black", risk.bg, risk.color)}>
+                                  <RiskIcon className="h-3 w-3 mr-1 inline-block" />
+                                  {risk.label}
                                 </Badge>
                               </div>
-                              <p className="text-xs text-slate-500 dark:text-slate-500 truncate font-medium">
-                                {s.latest_quiz ? `📝 ${s.latest_quiz}` : '📭 No activity'}
-                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-3xl font-black tracking-tighter text-white">
+                                {s.average_score}%
+                              </div>
+                              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Average</div>
                             </div>
                           </div>
 
-                          {/* Main Score */}
-                          <div className="text-right flex-shrink-0">
-                            <div className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                              {s.average_score}%
+                          <div className="grid grid-cols-2 gap-4 mb-8">
+                            <div className="bg-white/5 rounded-2xl p-4 border border-white/5 space-y-1">
+                              <div className="flex items-center gap-2 text-slate-500">
+                                <Flame className="h-3 w-3 text-orange-500" />
+                                <span className="text-[9px] font-black uppercase tracking-tighter">Streak</span>
+                              </div>
+                              <div className="text-xl font-black text-white">{s.engagement_streak || 0}d</div>
                             </div>
-                            <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Avg Score</p>
+                            <div className="bg-white/5 rounded-2xl p-4 border border-white/5 space-y-1">
+                              <div className="flex items-center gap-2 text-slate-500">
+                                <TrendingUp className="h-3 w-3 text-emerald-500" />
+                                <span className="text-[9px] font-black uppercase tracking-tighter">Consistency</span>
+                              </div>
+                              <div className="text-xl font-black text-white">{s.consistency || 0}%</div>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Progress Bar */}
-                        <div className="space-y-1">
-                          <Progress value={s.average_score} className="h-2 bg-slate-200 dark:bg-slate-700" />
+                        <div className="mt-auto space-y-6">
+                          <Progress value={s.average_score} className="h-1.5 bg-white/5" indicatorClassName="bg-gradient-to-r from-violet-500 to-blue-500" />
+                          
+                          <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="flex-1 rounded-xl bg-white/5 hover:bg-violet-500 hover:text-white transition-all font-black text-[10px] uppercase tracking-widest gap-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                fetchStudentDetail(
+                                  s.user_id,
+                                  s.username || 'Unknown',
+                                  s.avatar_url,
+                                  s.average_score,
+                                  s.quizzes_taken,
+                                  s.latest_quiz,
+                                  s.latest_date,
+                                );
+                              }}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              View Deep Stats
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              className="rounded-xl h-9 w-9 bg-white/5 hover:bg-emerald-500 hover:text-white transition-all"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
-
-                        {/* Metrics Row */}
-                        <div className="grid grid-cols-4 gap-2">
-                          {/* Quizzes Taken */}
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="bg-slate-100 dark:bg-slate-700/50 rounded-lg p-2.5 text-center hover:bg-slate-150 dark:hover:bg-slate-700 transition-colors group/metric">
-                                  <Target className="h-4 w-4 text-purple-600 dark:text-purple-400 mx-auto mb-1 opacity-70 group-hover/metric:opacity-100 transition-opacity" />
-                                  <p className="text-sm font-bold text-slate-900 dark:text-white">{s.quizzes_taken}</p>
-                                  <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">Quizzes</p>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>Total quizzes taken</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-
-                          {/* Engagement Streak */}
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="bg-slate-100 dark:bg-slate-700/50 rounded-lg p-2.5 text-center hover:bg-slate-150 dark:hover:bg-slate-700 transition-colors group/metric">
-                                  <Flame className="h-4 w-4 text-orange-600 dark:text-orange-400 mx-auto mb-1 opacity-70 group-hover/metric:opacity-100 transition-opacity" />
-                                  <p className="text-sm font-bold text-slate-900 dark:text-white">{s.engagement_streak || 0}</p>
-                                  <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">Streak</p>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>Days active in a row</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-
-                          {/* Consistency */}
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="bg-slate-100 dark:bg-slate-700/50 rounded-lg p-2.5 text-center hover:bg-slate-150 dark:hover:bg-slate-700 transition-colors group/metric">
-                                  <Zap className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mx-auto mb-1 opacity-70 group-hover/metric:opacity-100 transition-opacity" />
-                                  <p className="text-sm font-bold text-slate-900 dark:text-white">{(s.consistency || 0)}%</p>
-                                  <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">Activity</p>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>% of days active in last 30 days</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-
-                          {/* Days Since Activity */}
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="bg-slate-100 dark:bg-slate-700/50 rounded-lg p-2.5 text-center hover:bg-slate-150 dark:hover:bg-slate-700 transition-colors group/metric">
-                                  <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 mx-auto mb-1 opacity-70 group-hover/metric:opacity-100 transition-opacity" />
-                                  <p className="text-sm font-bold text-slate-900 dark:text-white text-xs">
-                                    {s.latest_date ? Math.floor((Date.now() - new Date(s.latest_date).getTime()) / (1000 * 60 * 60 * 24)) : '-'}
-                                  </p>
-                                  <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">Days</p>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>Days since last activity</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                      </div>
-
-                      {/* Hover indicator */}
-                      <div className={cn(
-                        "absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-purple-500 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300",
-                        status === 'Excellent' && 'from-green-500 to-emerald-500',
-                        status === 'Needs Attention' && 'from-amber-500 to-orange-500'
-                      )} />
-                    </div>
-                  );
-                })}
+                      </SpotlightCard>
+                    );
+                  })}
+                </AnimatePresence>
               </div>
             )}
-          </CardContent>
-        </Card>
-      </main>
+          </section>
+        </main>
+      </div>
 
-      {/* Student Detail Sheet */}
+      {/* Student Detail Sheet - Modern Overhaul */}
       <Sheet open={selectedStudent !== null} onOpenChange={(open) => !open && setSelectedStudent(null)}>
-        <SheetContent side="right" className="w-full sm:w-[600px] overflow-y-auto bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800">
+        <SheetContent side="right" className="w-full sm:w-[600px] overflow-y-auto bg-[#020617]/95 backdrop-blur-3xl border-l border-white/10 p-0 selection:bg-violet-500/30">
           {selectedStudent && (
-            <>
-              <SheetHeader className="mb-6">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-12 w-12 border border-slate-200 dark:border-slate-700">
+            <div className="p-8 space-y-12">
+              <SheetHeader className="space-y-6 pt-12">
+                <div className="flex items-center gap-6">
+                  <Avatar className="h-20 w-20 border-4 border-white/10 shadow-2xl">
                     {selectedStudent.avatar_url && <AvatarImage src={selectedStudent.avatar_url} alt={selectedStudent.username} />}
-                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold uppercase">
+                    <AvatarFallback className="bg-gradient-to-br from-violet-500 to-blue-600 text-white font-black text-3xl">
                       {selectedStudent.username.charAt(0)}
                     </AvatarFallback>
                   </Avatar>
-                  <SheetTitle className="text-2xl text-slate-900 dark:text-white">{selectedStudent.username}</SheetTitle>
+                  <div className="space-y-1">
+                    <SheetTitle className="text-4xl font-black text-white tracking-tighter">
+                      {selectedStudent.username}
+                    </SheetTitle>
+                    <div className="flex items-center gap-2 text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                      <GraduationCap className="h-3.5 w-3.5" />
+                      Academic Profile Level {Math.max(1, Math.min(5, Math.floor(selectedStudent.average_score / 20) + 1))}
+                    </div>
+                  </div>
                 </div>
-                <SheetDescription className="text-slate-600 dark:text-slate-400">Student Performance Profile</SheetDescription>
               </SheetHeader>
 
               {detailLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-slate-600 dark:text-slate-400">Loading details...</div>
+                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                  <div className="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-500">Fetching Deep Analytics...</span>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {/* Performance Score */}
-                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-6 border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                        <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                        Overall Performance
-                      </h3>
-                      <Badge className={cn(
-                        "text-sm font-semibold",
-                        selectedStudent.average_score >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                        selectedStudent.average_score >= 60 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                        'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                      )}>
-                        {selectedStudent.average_score >= 80 ? 'Excellent' : selectedStudent.average_score >= 60 ? 'Good' : 'Needs Attention'}
+                <div className="space-y-10 animate-in fade-in slide-in-from-right duration-500">
+                  {/* Primary Performance Gauge */}
+                  <div className={cn(floatingGlassCardClass, "p-8 space-y-6 bg-gradient-to-br from-violet-500/5 to-blue-500/5 overflow-hidden relative")}>
+                    <div className="absolute top-0 right-0 p-8 opacity-5">
+                      <TrendingUp className="h-32 w-32" />
+                    </div>
+                    
+                    <div className="flex items-center justify-between relative z-10">
+                      <div className="space-y-1">
+                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Mastery Level</h3>
+                        <div className="text-5xl font-black text-white tracking-tighter leading-none">
+                          {selectedStudent.average_score}%
+                        </div>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <Badge className={cn(
+                          "px-3 py-1 text-[10px] font-black uppercase tracking-widest border-none",
+                          selectedStudent.average_score >= 80 ? 'bg-emerald-500 text-white' :
+                          selectedStudent.average_score >= 60 ? 'bg-blue-500 text-white' :
+                          'bg-rose-500 text-white'
+                        )}>
+                          {selectedStudent.average_score >= 80 ? 'Expert' : selectedStudent.average_score >= 60 ? 'Proficient' : 'Developing'}
+                        </Badge>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">
+                          {selectedStudent.average_score >= 60 ? 'Growth Plan Active' : 'Remediation Required'}
+                        </p>
+                      </div>
+                    </div>
+                    <Progress value={selectedStudent.average_score} className="h-3 bg-white/5" indicatorClassName="bg-gradient-to-r from-violet-500 to-blue-500" />
+                  </div>
+
+                  {/* Core Metrics Widgets */}
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className={cn(floatingGlassCardClass, "p-6 space-y-4 border-none bg-white/[0.03]")}>
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <Target className="h-3.5 w-3.5 text-purple-500" />
+                        <span className="text-[9px] font-black uppercase tracking-widest">Total Attempts</span>
+                      </div>
+                      <div className="text-3xl font-black text-white tracking-tighter">{selectedStudent.quizzes_taken}</div>
+                      <div className="h-1 w-12 bg-purple-500/50 rounded-full" />
+                    </div>
+                    <div className={cn(floatingGlassCardClass, "p-6 space-y-4 border-none bg-white/[0.03]")}>
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <Clock className="h-3.5 w-3.5 text-orange-500" />
+                        <span className="text-[9px] font-black uppercase tracking-widest">Last Activity</span>
+                      </div>
+                      <div className="text-lg font-black text-white truncate">
+                        {selectedStudent.latest_date ? new Date(selectedStudent.latest_date).toLocaleDateString() : 'N/A'}
+                      </div>
+                      <div className="h-1 w-12 bg-orange-500/50 rounded-full" />
+                    </div>
+                  </div>
+
+                  {/* Knowledge Mapping */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className={cn(floatingGlassCardClass, "p-6 space-y-4 border-rose-500/20")}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-rose-500" />
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Weak Topics</h4>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedStudent.weak_areas && selectedStudent.weak_areas.length > 0 ? (
+                          selectedStudent.weak_areas.map(area => (
+                            <Badge key={area} className="bg-rose-500/10 text-rose-500 border-none text-[9px] font-black uppercase">
+                              {area}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-600 font-medium italic">No weaknesses detected</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className={cn(floatingGlassCardClass, "p-6 space-y-4 border-emerald-500/20")}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Mastered</h4>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedStudent.strong_areas && selectedStudent.strong_areas.length > 0 ? (
+                          selectedStudent.strong_areas.map(area => (
+                            <Badge key={area} className="bg-emerald-500/10 text-emerald-500 border-none text-[9px] font-black uppercase">
+                              {area}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-600 font-medium italic">Establishing baseline...</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Learning Engine Stats */}
+                  <div className={cn(floatingGlassCardClass, "p-8 space-y-8")}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Brain className="h-5 w-5 text-indigo-500" />
+                        <h4 className="text-xs font-black uppercase tracking-widest text-white">Cognitive Style Mapping</h4>
+                      </div>
+                      <Badge variant="outline" className="border-indigo-500/30 text-indigo-500 font-black text-[9px] uppercase tracking-tighter">
+                        {selectedStudent.learning_style?.primary_style || "Undetermined"}
                       </Badge>
                     </div>
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Average Score</span>
-                          <span className="text-3xl font-bold text-blue-600 dark:text-blue-400">{selectedStudent.average_score}%</span>
-                        </div>
-                        <Progress value={selectedStudent.average_score} className="h-3" />
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Quick Stats */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                      <CardContent className="pt-4">
-                        <div className="text-center">
-                          <Target className="h-5 w-5 text-purple-500 mx-auto mb-2 opacity-50" />
-                          <p className="text-2xl font-bold text-slate-900 dark:text-white">{selectedStudent.quizzes_taken}</p>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">Quizzes Taken</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                      <CardContent className="pt-4">
-                        <div className="text-center">
-                          <Clock className="h-5 w-5 text-orange-500 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                            {selectedStudent.latest_date ? new Date(selectedStudent.latest_date).toLocaleDateString() : 'N/A'}
-                          </p>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">Last Active</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Engagement & Consistency Metrics */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4 border border-orange-200 dark:border-orange-800">
-                      <div className="text-center">
-                        <Flame className="h-6 w-6 text-orange-600 dark:text-orange-400 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">{selectedStudent.engagement_streak || 0}</p>
-                        <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-medium">Day Streak</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4 border border-yellow-200 dark:border-yellow-800">
-                      <div className="text-center">
-                        <Zap className="h-6 w-6 text-yellow-600 dark:text-yellow-400 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">{selectedStudent.consistency || 0}%</p>
-                        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 font-medium">Consistency</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
-                      <div className="text-center">
-                        <Clock className="h-6 w-6 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{selectedStudent.days_since_activity || 0}</p>
-                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 font-medium">Days Ago</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Score Range */}
-                  <div className="bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-800 dark:to-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700">
-                    <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                      <Eye className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      Performance Range
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 font-medium mb-2">Highest Score</p>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-3xl font-bold text-green-600 dark:text-green-400">{selectedStudent.highest_score || 0}%</span>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 font-medium mb-2">Lowest Score</p>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-3xl font-bold text-red-600 dark:text-red-400">{selectedStudent.lowest_score || 0}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Weak Areas */}
-                  {selectedStudent.weak_areas && selectedStudent.weak_areas.length > 0 && (
-                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-6 border border-amber-200 dark:border-amber-800">
-                      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                        Areas Needing Improvement
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedStudent.weak_areas.map((area) => (
-                          <Badge key={area} className="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-medium">
-                            📚 {area}
-                          </Badge>
-                        ))}
-                      </div>
-                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-3 font-medium">
-                        💡 Consider assigning focused quizzes on these topics to help improve scores
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Strong Areas */}
-                  {selectedStudent.strong_areas && selectedStudent.strong_areas.length > 0 && (
-                    <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-6 border border-green-200 dark:border-green-800">
-                      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                        <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-                        Mastered Topics
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedStudent.strong_areas.map((area) => (
-                          <Badge key={area} className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border border-green-300 dark:border-green-700 font-medium">
-                            ✨ {area}
-                          </Badge>
-                        ))}
-                      </div>
-                      <p className="text-xs text-green-700 dark:text-green-300 mt-3 font-medium">
-                        🚀 Student is performing exceptionally in these areas
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Quick Stats */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                      <CardContent className="pt-4">
-                        <div className="text-center">
-                          <Target className="h-5 w-5 text-purple-500 mx-auto mb-2 opacity-60" />
-                          <p className="text-2xl font-bold text-slate-900 dark:text-white">{selectedStudent.quizzes_taken}</p>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium">Total Attempts</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
-                      <CardContent className="pt-4">
-                        <div className="text-center">
-                          <Brain className="h-5 w-5 text-indigo-500 mx-auto mb-2 opacity-60" />
-                          <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                            {selectedStudent.learning_style?.primary_style ? selectedStudent.learning_style.primary_style[0].toUpperCase() : '?'}
-                          </p>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium">Learning Style</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Learning Style */}
-                  {selectedStudent.learning_style && (
-                    <div className="bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 rounded-xl p-6 border border-violet-200 dark:border-violet-800">
-                      <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-                        <Sparkles className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-                        Learning Style
-                      </h3>
-                      <div className="space-y-3">
-                        {selectedStudent.learning_style.primary_style && (
-                          <div>
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Primary: <span className="text-violet-600 dark:text-violet-400">{selectedStudent.learning_style.primary_style}</span></p>
+                    <div className="grid grid-cols-1 gap-6">
+                      {[
+                        { label: 'Visual', score: selectedStudent.learning_style?.visual_score || 0, color: 'bg-violet-500' },
+                        { label: 'Auditory', score: selectedStudent.learning_style?.auditory_score || 0, color: 'bg-blue-500' },
+                        { label: 'Reading', score: selectedStudent.learning_style?.reading_score || 0, color: 'bg-emerald-500' },
+                        { label: 'Kinesthetic', score: selectedStudent.learning_style?.kinesthetic_score || 0, color: 'bg-amber-500' }
+                      ].map(({ label, score, color }) => (
+                        <div key={label} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label} Logic</span>
+                            <span className="text-[10px] font-black text-white">{selectedStudent.learning_style ? `${score}%` : 'N/A'}</span>
                           </div>
-                        )}
-                        {selectedStudent.learning_style.secondary_style && (
-                          <p className="text-sm text-slate-600 dark:text-slate-400">Secondary: {selectedStudent.learning_style.secondary_style}</p>
-                        )}
-                        
-                        {/* Learning Style Scores */}
-                        <div className="space-y-2 mt-4 pt-4 border-t border-violet-200 dark:border-violet-700">
-                          {[
-                            { label: 'Visual', score: selectedStudent.learning_style.visual_score },
-                            { label: 'Auditory', score: selectedStudent.learning_style.auditory_score },
-                            { label: 'Reading', score: selectedStudent.learning_style.reading_score },
-                            { label: 'Kinesthetic', score: selectedStudent.learning_style.kinesthetic_score }
-                          ].map(({ label, score }) => (
-                            <div key={label}>
-                              <div className="flex items-center justify-between text-sm mb-1">
-                                <span className="text-slate-700 dark:text-slate-300">{label}</span>
-                                <span className="font-medium text-slate-900 dark:text-white">{score}</span>
-                              </div>
-                              <Progress value={(score / 10) * 100} className="h-2" />
-                            </div>
-                          ))}
+                          <Progress value={score} className="h-1 bg-white/5" indicatorClassName={cn(color, !selectedStudent.learning_style && "opacity-20")} />
                         </div>
-                      </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
 
-                  {/* Quiz History */}
-                  {selectedStudent.quiz_history.length > 0 && (
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700">
-                      <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-                        <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                        Quiz History
-                      </h3>
-                      <div className="space-y-3 max-h-64 overflow-y-auto">
-                        {selectedStudent.quiz_history.map((quiz, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{quiz.title}</p>
-                              <p className="text-xs text-slate-600 dark:text-slate-400">{quiz.date}</p>
-                            </div>
-                            <div className="flex items-center gap-3 ml-4">
-                              <Badge className={cn(
-                                quiz.score >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                                quiz.score >= 60 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                                'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                              )}>
-                                {quiz.score}%
-                              </Badge>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedStudent.quiz_history.length === 0 && (
-                    <div className="text-center py-8 text-slate-600 dark:text-slate-400">
-                      <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">No quiz history yet</p>
-                    </div>
-                  )}
+                  {/* Quick Actions Footer - Floating */}
+                  <div className="p-2 bg-white/5 backdrop-blur-3xl border border-white/10 rounded-2xl flex items-center gap-2">
+                    <Button 
+                      className="flex-1 rounded-xl bg-violet-500 hover:bg-violet-600 text-white font-black text-[10px] uppercase tracking-widest h-11"
+                    >
+                      <Zap className="mr-2 h-3.5 w-3.5" />
+                      Assign Remediation
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="rounded-xl border-white/10 bg-white/5 hover:bg-white/10 text-white font-black text-[10px] uppercase tracking-widest h-11 px-4"
+                    >
+                      Notify
+                    </Button>
+                  </div>
                 </div>
               )}
-            </>
+            </div>
           )}
         </SheetContent>
       </Sheet>

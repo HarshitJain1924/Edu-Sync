@@ -87,7 +87,6 @@ type TeacherSession = {
   id: string;
   title: string;
   start_time: string;
-  end_time?: string | null;
   status?: string | null;
   room_id?: string | null;
 };
@@ -189,7 +188,7 @@ const TeacherDashboard = () => {
 
     const { data, error } = await supabase
       .from("study_sessions")
-      .select("id, title, start_time, end_time, status, room_id, teacher_id")
+      .select("id, title, start_time, status, room_id, teacher_id")
       .eq("teacher_id", user.id)
       .order("start_time", { ascending: true });
 
@@ -223,10 +222,6 @@ const TeacherDashboard = () => {
         start_time: new Date(newSessionDateTime).toISOString(),
         status: "scheduled",
       };
-
-      const endDate = new Date(newSessionDateTime);
-      endDate.setMinutes(endDate.getMinutes() + 60);
-      payload.end_time = endDate.toISOString();
 
       const { error } = await supabase.from("study_sessions").insert(payload);
       if (error) throw error;
